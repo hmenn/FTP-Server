@@ -1,4 +1,6 @@
 
 
 all:
-	gcc client.c -o client -pthread
+	gcc hmlinkedlist.c -c
+	gcc client.c -c
+	gcc hmlinkedlist.o client.o -o client -pthread

@@ -10,6 +10,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include "hmlinkedlist.h"
 
 
 #define LISTEN_CONNECTION 5
@@ -18,10 +19,18 @@
 
 
 static sig_atomic_t doneflag=0;
+static sig_atomic_t sigflag=0;
+
+
+int fdPipeToMain[2];
+int fdPipeFromMain[2];
+int fdSocket;
 
 void sighandler(int signum){
 	printf("Signal\n");
+	close(fdSocket);
 	doneflag=1;
+	sigflag=1;
 }
 
 void startServer(int portnum);
@@ -30,6 +39,12 @@ FILE *fpLog=NULL;
 // initializes socket-port and returns socket fd
 // coming num : # of listen to coming connetion 
 int initializeSocket(int portnum,int comingnum);
+
+
+void *listenPipe(void *);
+
+
+
 
 int main(int argc,char *argv[]){
 
@@ -45,6 +60,7 @@ int main(int argc,char *argv[]){
 	fpLog = fopen(LOG_FILE_NAME,"w");
 	startServer(iPortnum);
 
+	fclose(fpLog);
 	return 0;
 }
 
@@ -53,11 +69,12 @@ void startServer(int portnum){
 
 	struct sockaddr_in clientAddr;
 	socklen_t clientlen;
-	int fdSocket;
 	pid_t pid;
+	hmlist_t serverList;
 	// clear values
 	memset(&clientAddr,0,sizeof(struct sockaddr_in));
 	pid = getpid();
+
 
 
 	 if((fdSocket=initializeSocket(portnum,LISTEN_CONNECTION))==-1){
@@ -71,26 +88,67 @@ void startServer(int portnum){
 
 	 int fdClient;
 	 pid_t pidClient;
-	 while(!doneflag){
+	 pid_t pidChild;
+	 hmServer_t miniServer;
 
-	 	printf("Server started.\n");
+	 pipe(fdPipeFromMain);
+	 pipe(fdPipeToMain);
+	 // TODO : CHECK ERRORS
+
+
+	 /*pthread_t pipeListener;
+	 pthread_create(&pipeListener,NULL,listenPipe,NULL);*/
+
+	 memset(&serverList,0,sizeof(hmlist_t));
+	 printf("Server started.\n");
+	 while(!doneflag){
+	 	
 	 	printf("Waiting for clients...\n");
 
 	 	fdClient = accept(fdSocket,(struct sockaddr*)&clientAddr,&clientlen);
 	 	if(fdClient!=-1 && !doneflag){
 	 		read(fdClient,&pidClient,sizeof(pid_t));
-	 		printf("[%ld] client connected to server.\n",(long)pidClient);
-
-
+	 		
+	 		if((pidChild=fork())==-1){
+	 			perror("Fork failed : ");
+	 			doneflag=1;
+	 		}else if(pidChild==0){ // child here
+	 			deleteList(&serverList);
+	 			break;
+	 		}else{//parent here
+	 			memset(&miniServer,0,sizeof(hmServer_t));
+		 		miniServer.pidClient=pidClient;
+		 		miniServer.fdClient=fdClient;
+	 			miniServer.pidServer = pidChild;
+	 			addLast(&serverList,&miniServer);
+	 			printf("[%ld] client connected to server.\n",(long)pidChild);
+	 		}
 
 	 	}else doneflag=1;
 	 }
 
-	 printf("asd\n");
+	 if(pidChild==0){ // child continue
+
+
+	 }else{
+	 	printList(&serverList);
+	 	deleteList(&serverList);
+	 }
+
+
+
 	 close(fdSocket);
-	 close(fdClient);
 
 }
+
+
+void *listenPipe(void *args){
+
+
+
+}
+
+
 
 // listennum : listen to the incoming connections
 // return socket file descriptor
