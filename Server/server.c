@@ -10,11 +10,19 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <semaphore.h>
 #include "hmlinkedlist.h"
 
+typedef enum{LIST_SERVER,LS_CLIENT,CHECK_CLIENT,SEND_CLIENT,
+	SEND_SERVER}Command_e;
 
+#define SEM_NAME "/131044009.sm"
 #define LISTEN_CONNECTION 5
 #define LOG_FILE_NAME "log.hm"
+
+	// dosya,semafor izinleri
+#define PERMS (mode_t)(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+#define FLAGS (O_CREAT | O_EXCL)
 
 
 
@@ -26,6 +34,8 @@ int fdPipeToMain[2];
 int fdPipeFromMain[2];
 int fdSocket;
 
+sem_t *semMain=NULL; // main server pipe fd
+
 void sighandler(int signum){
 	printf("Signal\n");
 	close(fdSocket);
@@ -35,6 +45,7 @@ void sighandler(int signum){
 
 void startServer(int portnum);
 FILE *fpLog=NULL;
+hmlist_t serverList;
 
 // initializes socket-port and returns socket fd
 // coming num : # of listen to coming connetion 
@@ -43,6 +54,9 @@ int initializeSocket(int portnum,int comingnum);
 
 void *listenPipe(void *);
 
+
+// this function copied from course book
+int getnamed(char *name, sem_t **sem, int val);
 
 
 
@@ -61,6 +75,7 @@ int main(int argc,char *argv[]){
 	startServer(iPortnum);
 
 	fclose(fpLog);
+	printf("Server[%ld] closed successfully.\n",(long)getpid());
 	return 0;
 }
 
@@ -70,7 +85,7 @@ void startServer(int portnum){
 	struct sockaddr_in clientAddr;
 	socklen_t clientlen;
 	pid_t pid;
-	hmlist_t serverList;
+	
 	// clear values
 	memset(&clientAddr,0,sizeof(struct sockaddr_in));
 	pid = getpid();
@@ -93,11 +108,13 @@ void startServer(int portnum){
 
 	 pipe(fdPipeFromMain);
 	 pipe(fdPipeToMain);
+
 	 // TODO : CHECK ERRORS
 
+	 getnamed(SEM_NAME,&semMain,1);
 
-	 /*pthread_t pipeListener;
-	 pthread_create(&pipeListener,NULL,listenPipe,NULL);*/
+	 pthread_t pipeListener;
+	 pthread_create(&pipeListener,NULL,listenPipe,NULL);
 
 	 memset(&serverList,0,sizeof(hmlist_t));
 	 printf("Server started.\n");
@@ -108,11 +125,12 @@ void startServer(int portnum){
 	 	fdClient = accept(fdSocket,(struct sockaddr*)&clientAddr,&clientlen);
 	 	if(fdClient!=-1 && !doneflag){
 	 		read(fdClient,&pidClient,sizeof(pid_t));
-	 		
+
 	 		if((pidChild=fork())==-1){
 	 			perror("Fork failed : ");
 	 			doneflag=1;
 	 		}else if(pidChild==0){ // child here
+	 			sem_close(semMain);
 	 			deleteList(&serverList);
 	 			break;
 	 		}else{//parent here
@@ -121,7 +139,8 @@ void startServer(int portnum){
 		 		miniServer.fdClient=fdClient;
 	 			miniServer.pidServer = pidChild;
 	 			addLast(&serverList,&miniServer);
-	 			printf("[%ld] client connected to server.\n",(long)pidChild);
+	 			printf("Client[%ld] connected to Server[%ld].\n",
+	 									(long)pidClient,(long)pidChild);
 	 		}
 
 	 	}else doneflag=1;
@@ -129,21 +148,76 @@ void startServer(int portnum){
 
 	 if(pidChild==0){ // child continue
 
+		 // listen incoming request
+		 int  command;
+		 //close(fdPipeToMain[0]);
+		 //close(fdPipeFromMain[1]);
+		 while(!doneflag){
+		 	command=-1;
+		 	int err = read(fdClient,&command,sizeof(int));
+		 	if(err==0){
+		 		doneflag=1;
+		 	}
+
+		 	switch(command){
+
+		 		case LS_CLIENT:{
+		 			printf("Client want to list connedted clients pids...\n");
+		 			int request = LS_CLIENT;
+
+		 			write(fdPipeToMain[1],&request,sizeof(int));
+		
+		 			while(1){
+		 				pid_t cl;
+		 				read(fdPipeFromMain[0],&cl,sizeof(pid_t));
+		 				write(fdClient,&cl,sizeof(pid_t));
+		 				if(cl==-1)
+		 					break;
+		 			}
+		 		} break;
+
+		 	}
+		 	printf("Command completed\n");
+		 }
 
 	 }else{
-	 	printList(&serverList);
+	 	//printList(&serverList);
 	 	deleteList(&serverList);
+	 	pid_t endpid=-1;
+	 	write(fdPipeToMain[1],&endpid,sizeof(pid_t));
 	 }
 
 
-
+	 pthread_join(pipeListener,NULL);
 	 close(fdSocket);
-
+	 sem_close(semMain);
+	 unlink(SEM_NAME);
 }
 
 
 void *listenPipe(void *args){
 
+	//close(fdPipeFromMain[0]);
+	//close(fdPipeToMain[1]);
+
+	int command=-1;
+	while(!doneflag){
+
+		if(read(fdPipeToMain[0],&command,sizeof(int))>0){
+		
+			if(command==LS_CLIENT){ // send connecting client pids
+				node_t *ref = serverList.head;
+				while(ref!=NULL){
+					pid_t client = ref->serverData.pidClient;
+					write(fdPipeFromMain[1],&client,sizeof(pid_t));
+					ref=ref->next;
+				}
+				pid_t endpid =-1;
+				write(fdPipeFromMain[1],&endpid,sizeof(pid_t));
+			}
+		}
+
+	}
 
 
 }
@@ -188,4 +262,20 @@ int initializeSocket(int portnum,int comingnum){
 	}
 
 	return fdSocket;
+}
+
+
+int getnamed(char *name, sem_t **sem, int val) {
+	while (((*sem = sem_open(name, FLAGS, PERMS, val)) == SEM_FAILED) &&
+									(errno == EINTR)) ;
+	if (*sem != SEM_FAILED)
+		return 0;
+	if (errno != EEXIST)
+		return -1;
+	while (((*sem = sem_open(name, 0)) == SEM_FAILED) && (errno == EINTR)) ;
+
+	if (*sem != SEM_FAILED)
+		return 0;
+
+	return -1;
 }

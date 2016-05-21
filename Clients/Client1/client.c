@@ -14,6 +14,9 @@
 #include <errno.h>
 #include "hmlinkedlist.h"
 
+typedef enum{LIST_SERVER,LS_CLIENT,CHECK_CLIENT,SEND_CLIENT,
+	SEND_SERVER}Command_e;
+
 #define MAX_LINE_LEN 80
 
 static sig_atomic_t doneflag=0;
@@ -57,28 +60,44 @@ int main(int argc, char *argv[]){
 	while(!doneflag){
 		memset(line,0,MAX_LINE_LEN);
 		printf("Enter command ");
-		fgets(line,MAX_LINE_LEN,stdin);
+		if(fgets(line,MAX_LINE_LEN,stdin)!=NULL && !doneflag){
 
-		line[strlen(line)-1]='\0'; // delete \n character
-		if(strcmp(line,"help")==0){ // help command
-			showHelpManual();
-		}else if(strcmp(line,"listLocal")==0){
-			filelist = readDirectory("./");
-			printList(filelist);
-			deleteList(filelist);
-			free(filelist);
-		}else{
+			line[strlen(line)-1]='\0'; // delete \n character
+			if(strcmp(line,"help")==0){ // help command
+				showHelpManual();
+			}else if(strcmp(line,"listLocal")==0){
+				filelist = readDirectory("./");
+				printList(filelist);
+				deleteList(filelist);
+				free(filelist);
+			}else if(strcmp(line,"lsClient")==0){
+				int command;
+				pid_t connedtedPid;
+				int i=1;
+				command = LS_CLIENT;
+				write(fdSocket,&command,sizeof(int));
 
+				while(read(fdSocket,&connedtedPid,sizeof(pid_t)) >0 &&
+					connedtedPid != -1){
+					printf("Connedted Client Pids...\n");
+					printf("%d. %ld\n",i,(long)connedtedPid);
+					++i;
+				}
+			}else{
+				printf("#Entered invalid command\n");
+				printf("#Please check help page\n");
+			}
 		}
 	}
 
 	close(fdSocket);
 
+	printf("\n\nCLIENT CLOSED SUCCUSSFULLY\n\n");
 	return 0;
 }
 
 void showHelpManual(){
-	printf("USAGE : ./client ipnum portnum\n");
+	printf("\n#################################\n");
 	printf("Arguments...\n");
 	printf("1. help : show help manual\n");
 	printf("2. listLocal : to list the local files in the directory client program started\n");
@@ -87,6 +106,7 @@ void showHelpManual(){
 	printf("5. sendFile <filename> <clientid>  : send the file <filename> (if file exists) from \
 		local directory to the client with client id clientid. If no client id is given the  \
 		file is send to the servers local directory.\n");
+	printf("\n#################################\n");
 	printf("\n");
 }
 
