@@ -34,18 +34,34 @@ int fdPipeToMain[2];
 int fdPipeFromMain[2];
 int fdSocket;
 
-sem_t *semMain=NULL; // main server pipe fd
-
-void sighandler(int signum){
-	printf("Signal\n");
-	close(fdSocket);
-	doneflag=1;
-	sigflag=1;
-}
-
-void startServer(int portnum);
 FILE *fpLog=NULL;
 hmlist_t serverList;
+sem_t *semMain=NULL; // main server pipe fd
+pid_t pidMain;
+int fdClient;
+
+void killAllChilds();
+
+void sighandler(int signum){
+	printf("[%ld] handled Signal-%d\n",(long)getpid(),signum);
+	close(fdSocket);
+	close(fdClient);
+	doneflag=1;
+	sigflag=1;
+	killAllChilds(signum);
+}
+
+void sigChildHandler(int signum){
+	pid_t pidChild;
+	pidChild = wait(NULL);
+	printf("->Server : Child[%ld] dead.\n",(long)pidChild);
+	deleteElementFromList(&serverList,pidChild);
+}
+
+
+
+void startServer(int portnum);
+
 
 // initializes socket-port and returns socket fd
 // coming num : # of listen to coming connetion 
@@ -70,6 +86,8 @@ int main(int argc,char *argv[]){
 	}
 
 	signal(SIGINT,sighandler);
+	signal(SIGCHLD,sigChildHandler);
+	pidMain= getpid();
 	iPortnum = atoi(argv[1]);
 	fpLog = fopen(LOG_FILE_NAME,"w");
 	startServer(iPortnum);
@@ -101,7 +119,7 @@ void startServer(int portnum){
 
 	 clientlen = sizeof(struct sockaddr_in);
 
-	 int fdClient;
+	 
 	 pid_t pidClient;
 	 pid_t pidChild;
 	 hmServer_t miniServer;
@@ -278,4 +296,20 @@ int getnamed(char *name, sem_t **sem, int val) {
 		return 0;
 
 	return -1;
+}
+
+void killAllChilds(int signum){
+	node_t *head = serverList.head;
+	pid_t pidMiniServer;
+
+	while(head!=NULL){
+		pidMiniServer = head->serverData.pidServer;
+		kill(pidMiniServer,signum);
+		printf("[%ld]BIG-SERVER send kill(%d) to Child[%ld]\n",
+						(long)pidMain,signum,(long)pidMiniServer);
+		head = head->next;
+	}
+
+
+
 }

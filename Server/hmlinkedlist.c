@@ -44,35 +44,37 @@ void printList(hmlist_t * list){
 		}
 	}
 }
-/*
-// listi dosyaya basar
-// list icinde her dosyanin adi koordinatlari vardir.
-// islemin toplam zamaninida ekrana basar
-void printOccurancesToLog(const char *fname,occurance_t * occ,long totalTime){
 
-	FILE * fpLog = fopen(fname,"a");
-	int i=1;
+// linkedlistten belli bir elemani silecez
+// hata olmasi durumunda -1 return edecektir
+int deleteElementFromList(hmlist_t *list,pid_t pid){
 
-	if(occ ==NULL)
-		perror("Null parameter");
-	else{
-		if(occ->head==NULL)
-			fprintf(fpLog,"empty list\n");
-		else{
-			fprintf(fpLog, "\n#####################################\n");
-			fprintf(fpLog, "\nFile : %s\n",occ->fileName);
-			fprintf(fpLog, "Total Time : %ld(ms)\n\n",totalTime);
-			node_t *ref = occ->head;
-			while(ref!=NULL){
-				fprintf(fpLog,"%d. row: %d - column: %d\n",i++,ref->row,ref->column);
-				ref = ref->next;
-			}
-			fprintf(fpLog,"File Total %d\n",occ->total);
-		}
+	if(list == NULL){
+		perror("deleteElementFromList : Null parameter");
+		return -1;
 	}
-	fflush(fpLog); // log flusing
-	fclose(fpLog);
-}*/
+
+	node_t *ref =list->head;
+	if(ref == NULL){
+		perror("deleteElementFromList : Null list head");
+		return -1;
+	} 
+
+	if(ref->serverData.pidServer == pid){
+		list->head = ref->next;
+		free(ref);
+		ref=NULL;
+		return 0;
+	}
+
+
+
+
+
+	printf("#### THIS IS A STUB ####\n");
+	printf("PID[%ld] deleted.\n",(long)pid);
+
+}
 
 // linked listi siler
 void deleteList(hmlist_t *list){

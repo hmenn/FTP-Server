@@ -33,7 +33,7 @@ void printList(hmlist_t * list);
 void deleteList(hmlist_t *list);
 
 // delete element from list
-void deleteElement(hmlist_t *list,node_t element);
+int deleteElementFromList(hmlist_t *list,pid_t pid);
 
 // listi dosyaya basar
 //void printOccurancesToLog(const char *fname,occurance_t * occ,long totalTime);

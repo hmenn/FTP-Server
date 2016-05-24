@@ -14,17 +14,27 @@
 #include <errno.h>
 #include "hmlinkedlist.h"
 
+#define DEBUG 0
+
 typedef enum{LIST_SERVER,LS_CLIENT,CHECK_CLIENT,SEND_CLIENT,
 	SEND_SERVER}Command_e;
 
 #define MAX_LINE_LEN 80
 
 static sig_atomic_t doneflag=0;
+int fdSocket;
 
 void sighandler(int signo){
 	printf("Signal\n");
 	doneflag=1;
 	close(0); // close for fgets
+}
+
+void * listenSocket(void *args){
+
+	
+
+	
 }
 
 // returns socket fd
@@ -48,7 +58,7 @@ int main(int argc, char *argv[]){
 	pid_t pid;
 	hmlist_t *filelist;
 	if(fdSocket == -1){
-		perror("Invalid socked fd : ");
+		perror("->Main : socked fildes");
 		return 1;
 	}
 
@@ -76,10 +86,9 @@ int main(int argc, char *argv[]){
 				int i=1;
 				command = LS_CLIENT;
 				write(fdSocket,&command,sizeof(int));
-
+				printf("Connedted Client Pids...\n");
 				while(read(fdSocket,&connedtedPid,sizeof(pid_t)) >0 &&
 					connedtedPid != -1){
-					printf("Connedted Client Pids...\n");
 					printf("%d. %ld\n",i,(long)connedtedPid);
 					++i;
 				}
@@ -111,28 +120,38 @@ void showHelpManual(){
 }
 
 
+
+void sigAlarmHandler(int signum){
+	doneflag=1;
+	close(fdSocket);
+}
+
+
 int connectServer(const char *ipnum,int portnum){
 
 	struct sockaddr_in serverAddr;
+	signal(SIGALRM,sigAlarmHandler);
 	
-	int fdSocket;
+	
 
 
 	if((fdSocket=socket(AF_INET,SOCK_STREAM,0))<0){
-		perror("Socket error : ");
+		perror("->ConnecServer : socket error");
 		return -1;
 	}
+
 
 	memset(&serverAddr,0,sizeof(struct sockaddr_in));
 	serverAddr.sin_family=AF_INET;
 	serverAddr.sin_addr.s_addr=inet_addr(ipnum);
 	serverAddr.sin_port=htons(portnum);
 
-
+	alarm(2); // eger 2 sn icinde sockete 
 	if(connect(fdSocket,(struct sockaddr*)&serverAddr,sizeof(struct sockaddr_in))<0){
-		perror("Connect error : ");
+		perror("->ConnectServer : connect error");
 		return -1;
 	}
+	alarm(0);
 
 	return fdSocket;
 }
