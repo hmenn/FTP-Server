@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-void addLast(hmlist_t *list,const hmFile_t *file){
+void addList(hmlist_t *list,const hmFile_t *file){
 
 	node_t *newNode; // yeni nod olustur
 	newNode=(node_t*)malloc(sizeof(node_t));
@@ -73,10 +73,10 @@ int test(){
 	hmFile_t ser1;
 	strcpy(ser1.filename,"hm0");
 	ser1.filesize=15.5;
-	addLast(list,&ser1);
-	addLast(list,&ser1);
-	addLast(list,&ser1);
-	addLast(list,&ser1);
+	addList(list,&ser1);
+	addList(list,&ser1);
+	addList(list,&ser1);
+	addList(list,&ser1);
 	printList(list);
 	deleteList(list);
 	

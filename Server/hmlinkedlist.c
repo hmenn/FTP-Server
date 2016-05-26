@@ -2,12 +2,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-void addLast(hmlist_t *list,const hmServer_t *serverData){
+void addList(hmlist_t *list,const hmServData_t *data){
 
 	node_t *newNode; // yeni nod olustur
 	newNode=(node_t*)malloc(sizeof(node_t));
 	memset(newNode,0,sizeof(node_t));
-	newNode->serverData=*serverData;
+	newNode->data=*data;
 	newNode->next=NULL;
 
 	if(list->head==NULL){ // bos ise basina ekle
@@ -36,7 +36,8 @@ void printList(hmlist_t * list){
 			node_t *ref = list->head;
 			int i=1;
 			while(ref!=NULL){
-				printf("%d.Server[%ld] <-> Client[%ld] fd: %d\n",i,(long)ref->serverData.pidServer,(long)ref->serverData.pidClient,ref->serverData.fdClient);
+				printf("%d.Server[%ld] <-> Client[%ld] fd: %d\n",
+					i,(long)ref->data.pidServer,(long)ref->data.pidClient,ref->data.fdSocket);
 				ref = ref->next;
 				++i;
 			}
@@ -60,7 +61,7 @@ int deleteElementFromList(hmlist_t *list,pid_t pid){
 		return -1;
 	} 
 
-	if(ref->serverData.pidServer == pid){
+	if(ref->data.pidServer == pid){
 		list->head = ref->next;
 		free(ref);
 		ref=NULL;
@@ -100,14 +101,14 @@ int test(){
 	list->head=NULL;
 	list->last=NULL;
 
-	hmServer_t ser1;
+	hmServData_t ser1;
 	ser1.pidClient=1595;
 	ser1.pidServer=1694;
-	ser1.fdClient=5;
-	addLast(list,&ser1);
-	addLast(list,&ser1);
-	addLast(list,&ser1);
-	addLast(list,&ser1);
+	ser1.fdSocket=5;
+	addList(list,&ser1);
+	addList(list,&ser1);
+	addList(list,&ser1);
+	addList(list,&ser1);
 	printList(list);
 	deleteList(list);
 	

@@ -6,25 +6,25 @@
 typedef struct{
 	pid_t pidClient;
 	pid_t pidServer;
-	int fdClient; // two-way communicaton
-}hmServer_t;
+	int fdSocket; // two-way communicaton
+}hmServData_t;
 
 typedef struct node_s{
-	hmServer_t serverData;
+	hmServData_t data;
 	struct node_s *next;
 }node_t;
 
 // koordinatlar linked list olarak tutulacak
 typedef struct{
 	int size;
-	node_t *last; // eklemeyi constant zamana indirmek icin
+	node_t *last; // constant time adding O(1)
 	node_t *head;
 }hmlist_t;
 
 
 
 // listin sonuna ekleme yapar
-void addLast(hmlist_t *list,const hmServer_t *serverData);
+void addList(hmlist_t *list,const hmServData_t *data);
 
 // listi ekrana basar 
 void printList(hmlist_t * list);

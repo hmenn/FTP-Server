@@ -24,7 +24,7 @@ typedef struct{
 
 
 // listin sonuna ekleme yapar
-void addLast(hmlist_t *list,const hmFile_t *filedata);
+void addList(hmlist_t *list,const hmFile_t *filedata);
 
 // listi ekrana basar 
 void printList(hmlist_t * list);
