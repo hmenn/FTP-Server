@@ -13,18 +13,12 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include "cl.h"
-#include "hmlinkedlist.h"
-
-
 
 
 static sig_atomic_t doneflag=0;
 int gI_socketFd;
 pid_t gPid_client;
-hmlist_t *fileList=NULL;
 int gPipe_listenSocket[2]; // socketten gelenler buradan aktarilacak
-
-
 
 
 int main(int argc,char *argv[]){
@@ -34,7 +28,7 @@ int main(int argc,char *argv[]){
 		return 0;
 	}
 
-
+	int i=1; // counter
 	signal(SIGINT,sigHandler);
 	char line[MAX_LINE_LEN];
 	int portnum = atoi(argv[2]);
@@ -66,10 +60,7 @@ int main(int argc,char *argv[]){
 			if(strcmp(line,"help")==0){
 				showHelpManual();
 			}else if(strcmp(line,"listLocal")==0){
-				fileList = readDirectory("./");
-				printList(fileList);
-				deleteList(fileList);
-				free(fileList);
+				listLocalFiles("./");
 			}else if(strcmp(line,"lsClient")==0){
 				pid_t pidOnlineClient;
 				command = LS_CLIENT;
@@ -80,23 +71,37 @@ int main(int argc,char *argv[]){
 				int size;
 				read(gPipe_listenSocket[0],&size,sizeof(int));
 				printf("There are %d online client\n",size);
-				int i=0;
-				for(i=0;i<size;++i){
+				
+				for(i=1;i<=size;++i){
 					read(gPipe_listenSocket[0],&pidOnlineClient,sizeof(pid_t));
 					printf("%d. %ld\n",i,(long)pidOnlineClient);
 				}
-				
+			}else if(strcmp(line,"listServer")==0){
+				char fileName[MAX_FILE_NAME];
+				command = LIST_SERVER;
+				write(gI_socketFd,&command,sizeof(Command_e));
+				printf("[%ld]Send request to listServer\n",(long)gPid_client);
+
+				memset(fileName,0,MAX_FILE_NAME);
+				i=0;
+				while(read(gPipe_listenSocket[0],fileName,MAX_FILE_NAME)>0){
+					if(strcmp(fileName,INVALID_FILE_NAME)==0)
+						break;
+					++i;
+					printf("%d. %s\n",i,fileName);
+					
+				}
+				printf("There are %d files in server\n",i);
+
 			}else{
 				printf("#Entered invalid command\n");
 				printf("#Please check 'help' page\n");
 			}
-
 		}else{
 			command = DIE;
 			write(gI_socketFd,&command,sizeof(Command_e));
 		}
 	}
-
 
 	pthread_join(th_sockListener,NULL);
 	printf("\n\nCLIENT CLOSED SUCCUSSFULLY\n\n");
@@ -111,16 +116,17 @@ void sigHandler(int signum){
 }
 
 
+// TODO :  CHANGE WITH NEW GOOD HELP PAGE
 void showHelpManual(){
 	printf("\n#################################\n");
 	printf("Arguments...\n");
 	printf("1. help : show help manual\n");
-	printf("2. listLocal : to list the local files in the directory client program started\n");
-	printf("3. listServer : to list the files in the current scope of the server-client\n");
-	printf("4. lsClient pid : lists the clients currently connected to the server with their respective clientids\n");
-	printf("5. sendFile <filename> <clientid>  : send the file <filename> (if file exists) from \
-		local directory to the client with client id clientid. If no client id is given the  \
-		file is send to the servers local directory.\n");
+	printf("2. listLocal : to list the local files in the directory\nclient program started\n");
+	printf("3. listServer : to list the files in the current scope of\nthe server-client\n");
+	printf("4. lsClient pid : lists the clients currently connected to the\nserver with their respective clientids\n");
+	printf("5. sendFile <filename> <clientid>  : send the file <filename>");
+	printf("(if file exists) from local directory to the client with client");
+	printf("id clientid. If no client id is given the file is send to the\nservers local directory.\n");
 	printf("\n#################################\n");
 	printf("\n");
 }
@@ -136,31 +142,33 @@ void sigAlarmHandler(int signum){
 void *socketListener(void *args){
 
 	Command_e command;
+	int size=0;
+	int i=0;
+	pid_t pidOtherClient;
+	char fileName[MAX_FILE_NAME];
 
 	while(read(gI_socketFd,&command,sizeof(Command_e))>0){
 		if(command == LS_CLIENT){ 
-
-			int size;
-			// kac tane pdi okunacak
-			read(gI_socketFd,&size,sizeof(int));
-
-			write(gPipe_listenSocket[1],&size,sizeof(int));
-			int i=0;
-			pid_t pidTemp;
+			size=0;
+			read(gI_socketFd,&size,sizeof(int)); // read number of pids
+			write(gPipe_listenSocket[1],&size,sizeof(int)); // send nums to pipe
+			
 			for(i=0;i<size;++i){
 				// pid leri oku ve main threade yolla
-				read(gI_socketFd,&pidTemp,sizeof(pid_t));
-				write(gPipe_listenSocket[1],&pidTemp,sizeof(pid_t));
+				read(gI_socketFd,&pidOtherClient,sizeof(pid_t));
+				write(gPipe_listenSocket[1],&pidOtherClient,sizeof(pid_t));
 			}
-
+		}else if(command==LIST_SERVER){
+			memset(fileName,0,MAX_FILE_NAME);
+			while(read(gI_socketFd,fileName,MAX_FILE_NAME)>0){
+				write(gPipe_listenSocket[1],fileName,MAX_FILE_NAME);		
+				if(strcmp(fileName,INVALID_FILE_NAME)==0)
+						break;
+			}
 		}else if(command==DIE){
 			break;
-
-
 		}
 	}
-
-
 
 	return NULL;
 }
@@ -194,40 +202,6 @@ int connectServer(const char *ipnum,int portnum){
 	return gI_socketFd;
 }
 
-hmlist_t* readDirectory(const char *dirpath){
-
-	DIR *pDir;
-	struct dirent *pDirent=NULL;
-	hmlist_t *files=NULL;
-
-	pDir = opendir(dirpath);
-	if(pDir==NULL){
-		perror("Dir open error : ");
-		return NULL;
-	}
-
-	files = (hmlist_t *)malloc(sizeof(hmlist_t));
-	memset(files,0,sizeof(hmlist_t));
-	char strPath[MAX_FILE_NAME];
-	while((pDirent = readdir(pDir))!=NULL){
-		memset(strPath,0,MAX_FILE_NAME);
-		sprintf(strPath,"%s/%s",dirpath,pDirent->d_name);
-		if(strcmp(strPath,".")!=0 && strcmp(strPath,"..")!=0){
-			int filesize;
-			if((filesize = isRegFile(strPath))!=-1){
-				hmFile_t file;
-				memset(&file,0,sizeof(hmFile_t));
-				strcpy(file.filename,strPath);
-				file.filesize = filesize;
-				addList(files,&file);
-			}
-		}
-	}
-	closedir(pDir);
-	return files;
-
-}
-
 // if regular file return file size
 int isRegFile(const char * fileName){
   struct stat statbuf;
@@ -239,4 +213,39 @@ int isRegFile(const char * fileName){
   }
 }
 
+
+/*
+** Reads files in directory and prints standart output
+** @param dirPath : directory path to read 
+** @return : number of founded files
+*/
+int listLocalFiles(const char *dirPath){
+
+	DIR *pDir=NULL;
+	struct dirent *pDirent=NULL;
+	int filesize=0;
+	int filenum=0;
+
+	pDir = opendir(dirPath);
+	if(pDir==NULL){
+		perror("Dir open error :");
+		return -1;
+	}
+
+	printf("####################\nReading dir : %s\n",dirPath );
+	while((pDirent = readdir(pDir))!=NULL){ // read files in directory
+		if(strcmp(pDirent->d_name,".")!=0 && strcmp(pDirent->d_name,"..")!=0){
+			if((filesize = isRegFile(pDirent->d_name))!=-1){
+				++filenum;
+				printf("%d. %s\t %d(byte)\n",filenum,pDirent->d_name,filesize);
+			}
+		}
+	}
+	printf("\nFound %d files in %s\n###################\n",filenum,dirPath);
+
+	closedir(pDir);
+	pDir=NULL; // handle dangling pointers
+	pDirent=NULL;
+	return filenum;
+}
 

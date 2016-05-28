@@ -15,14 +15,16 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
-#include "hmlinkedlist.h"
 
 
 #define DEBUG 0
 #define MAX_LINE_LEN 80
+#define MAX_FILE_NAME 25
+#define INVALID_FILE_NAME "/"
+
 
 typedef enum COMMAND{
-	LIST_LOCAL,LIST_SERVER,LS_CLIENT,SEND_FILE,DIE
+	LIST_SERVER,LS_CLIENT,SEND_FILE,DIE
 }Command_e;
 
 
@@ -34,13 +36,11 @@ int connectServer(const char *ipnum,int portnum);
 
 void sigAlarmHandler(int signum);
 
-hmlist_t* readDirectory(const char *dirpath);
-
 void *socketListener(void *args);
 
 int isRegFile(const char * fileName);
 
-
+int listLocalFiles(const char *dirPath);
 
 
 #endif
