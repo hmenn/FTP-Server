@@ -7,6 +7,7 @@
 #define PIPE_CONTROL_SEM "/ppsem.hm"
 #define MAX_FILE_NAME 25
 #define INVALID_FILE_NAME "/"
+#define LOCAL_DIR "./"
 
 typedef enum COMMAND{
 	LIST_SERVER,LS_CLIENT,SEND_FILE,DIE
@@ -23,9 +24,14 @@ void sigPipeHandler(int signum);
 void killAllChilds();
 
 
+// fdClient : Client socked fildes
+// pidClient : serving which client -> use in printf
+void lsClient(int fdClient,pid_t pidClient);
+
+
 // reads local files and writes to fd
 // fd can be socket,pipe,or stdout
-int listLocalFiles(const char *dirPath,int fd);
+int listLocalFiles(DIR *dir,int fd);
 int isRegFile(const char * fileName);
 
 

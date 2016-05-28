@@ -34,6 +34,7 @@ int main(int argc,char *argv[]){
 	int portnum = atoi(argv[2]);
 	pid_t pidServer=-1;
 	gI_socketFd = connectServer(argv[1],portnum);
+	DIR *pDir=NULL;
 
 	if(gI_socketFd == -1){
 		perror("socket connect");
@@ -51,6 +52,14 @@ int main(int argc,char *argv[]){
 	pthread_t th_sockListener;
 	pthread_create(&th_sockListener,NULL,socketListener,NULL);
 
+
+
+	pDir = opendir(LOCAL_DIR);
+	if(pDir==NULL){
+		perror("Dir open error :");
+		return -1;
+	}
+
 	Command_e command; // command value
 	while(!doneflag){
 		memset(line,0,MAX_LINE_LEN);
@@ -60,38 +69,12 @@ int main(int argc,char *argv[]){
 			if(strcmp(line,"help")==0){
 				showHelpManual();
 			}else if(strcmp(line,"listLocal")==0){
-				listLocalFiles("./");
+				listFilesInDir(pDir);
 			}else if(strcmp(line,"lsClient")==0){
-				pid_t pidOnlineClient;
-				command = LS_CLIENT;
-				// get onlien clients pid request
-				write(gI_socketFd,&command,sizeof(Command_e));
-				// thread socketi okuyup sonuclari gonderince alacak
-				printf("Waiting for list of online clients\n");
-				int size;
-				read(gPipe_listenSocket[0],&size,sizeof(int));
-				printf("There are %d online client\n",size);
-				
-				for(i=1;i<=size;++i){
-					read(gPipe_listenSocket[0],&pidOnlineClient,sizeof(pid_t));
-					printf("%d. %ld\n",i,(long)pidOnlineClient);
-				}
+				lsClient();
 			}else if(strcmp(line,"listServer")==0){
-				char fileName[MAX_FILE_NAME];
-				command = LIST_SERVER;
-				write(gI_socketFd,&command,sizeof(Command_e));
-				printf("[%ld]Send request to listServer\n",(long)gPid_client);
-
-				memset(fileName,0,MAX_FILE_NAME);
-				i=0;
-				while(read(gPipe_listenSocket[0],fileName,MAX_FILE_NAME)>0){
-					if(strcmp(fileName,INVALID_FILE_NAME)==0)
-						break;
-					++i;
-					printf("%d. %s\n",i,fileName);
-					
-				}
-				printf("There are %d files in server\n",i);
+				listServer();
+			}else if(strcmp(line,"sendFile")==0){
 
 			}else{
 				printf("#Entered invalid command\n");
@@ -104,9 +87,56 @@ int main(int argc,char *argv[]){
 	}
 
 	pthread_join(th_sockListener,NULL);
+	
+
+
+	closedir(pDir);
+	pDir=NULL; // handle dangling pointers
 	printf("\n\nCLIENT CLOSED SUCCUSSFULLY\n\n");
 	return 0;
 }
+
+
+void listServer(){
+	char fileName[MAX_FILE_NAME];
+	Command_e command = LIST_SERVER;
+	int i=0;
+
+	write(gI_socketFd,&command,sizeof(Command_e));
+	printf("[%ld]Send request to listServer\n",(long)gPid_client);
+
+	memset(fileName,0,MAX_FILE_NAME);
+	
+	while(read(gPipe_listenSocket[0],fileName,MAX_FILE_NAME)>0){
+		if(strcmp(fileName,INVALID_FILE_NAME)==0)
+			break;
+		++i;
+		printf("%d. %s\n",i,fileName);
+		
+	}
+	printf("There are %d files in server\n",i);
+}
+
+
+void lsClient(){
+	pid_t pidOnlineClient=-1;
+	Command_e command = LS_CLIENT;
+	int size=0;
+	int i=0;
+	// get online clients pid request
+	write(gI_socketFd,&command,sizeof(Command_e));
+	// thread socketi okuyup sonuclari gonderince alacak
+	printf("Waiting for list of online clients\n");
+	
+	read(gPipe_listenSocket[0],&size,sizeof(int));
+	printf("There are %d online client\n",size);
+	
+	for(i=1;i<=size;++i){
+		read(gPipe_listenSocket[0],&pidOnlineClient,sizeof(pid_t));
+		printf("%d. %ld\n",i,(long)pidOnlineClient);
+	}
+}
+
 
 
 void sigHandler(int signum){
@@ -219,21 +249,14 @@ int isRegFile(const char * fileName){
 ** @param dirPath : directory path to read 
 ** @return : number of founded files
 */
-int listLocalFiles(const char *dirPath){
+int listFilesInDir(DIR *dir){
 
-	DIR *pDir=NULL;
 	struct dirent *pDirent=NULL;
 	int filesize=0;
 	int filenum=0;
 
-	pDir = opendir(dirPath);
-	if(pDir==NULL){
-		perror("Dir open error :");
-		return -1;
-	}
-
-	printf("####################\nReading dir : %s\n",dirPath );
-	while((pDirent = readdir(pDir))!=NULL){ // read files in directory
+	printf("####################\nReading local dir ...\n");
+	while((pDirent = readdir(dir))!=NULL){ // read files in directory
 		if(strcmp(pDirent->d_name,".")!=0 && strcmp(pDirent->d_name,"..")!=0){
 			if((filesize = isRegFile(pDirent->d_name))!=-1){
 				++filenum;
@@ -241,11 +264,9 @@ int listLocalFiles(const char *dirPath){
 			}
 		}
 	}
-	printf("\nFound %d files in %s\n###################\n",filenum,dirPath);
+	printf("\nFound %d files\n###################\n",filenum);
 
-	closedir(pDir);
-	pDir=NULL; // handle dangling pointers
-	pDirent=NULL;
+	pDirent=NULL; // handle dangling ptr
 	return filenum;
 }
 

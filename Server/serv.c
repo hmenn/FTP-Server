@@ -159,50 +159,32 @@ void startServer(int portnum){
 void startMiniServer(pid_t pidClient){
 
 	Command_e command=DIE;
-	int clientnum=0; // number of clients
-	int i=0; // counter
-	pid_t pidConnectedClient=-1;
+	DIR *pDir=NULL;
+
+
+	pDir = opendir(LOCAL_DIR);
+	if(pDir==NULL){
+		perror("Dir open error :");
+		return;
+	}
+
 	
 	pthread_mutex_init(&gMutex_lockSocket,NULL); // initialize mutex
 
 	write(fdClient,&gPid_server,sizeof(pid_t));	//send pid address to client
 	while(!doneflag){
-		clientnum=0;
 		read(fdClient,&command,sizeof(Command_e));
 		#ifdef DEBUG
-			printf("[%ld]MiniServer read command from [%ld]Client: %d\n",
-				(long)gPid_server,(long)pidClient,command);
+			printf("[%ld]MiniServer read command %d from [%ld]Client\n",
+				(long)gPid_server,command,(long)pidClient);
 		#endif
 		if(!doneflag){
 			if(command==LS_CLIENT){
-				sem_wait(gSemP_pipeSem); // lock semafor
-				pthread_mutex_lock(&gMutex_lockSocket); // lock writing socket
-				write(gPipe_cwpr[1],&command,sizeof(Command_e)); // write main server
-				write(gPipe_cwpr[1],&gPid_server,sizeof(pid_t)); // send mini server to mainserver
-				write(fdClient,&command,sizeof(Command_e)); // say client, which command result will send
-				
-				read(gPipe_crpw[0],&clientnum,sizeof(int)); // read from main server
-				#ifdef DEBUG
-					printf("[%ld]MiniServer read %d clients pid from MainServer\n",
-						(long)gPid_server,clientnum);
-				#endif
-				write(fdClient,&clientnum,sizeof(int)); // push client number to socket
-				
-				for(i=0; i!=clientnum;++i){ // read pid from pipe and write to socket
-					read(gPipe_crpw[0],&pidConnectedClient,sizeof(pid_t));
-					write(fdClient,&pidConnectedClient,sizeof(pid_t));
-				}
-				#ifdef DEBUG
-					printf("[%ld]MiniServer send %d clients pid to [%ld]Client\n",
-						(long)gPid_server,clientnum,(long)pidClient);
-				#endif
-				pthread_mutex_unlock(&gMutex_lockSocket); // unlock socket writing
-				sem_post(gSemP_pipeSem); // unlock pipe semafors
+				lsClient(fdClient,pidClient);
 			}else if(command==LIST_SERVER){
 				//lock mutex and write filenames to socket
 				pthread_mutex_lock(&gMutex_lockSocket); 
-				listLocalFiles("./",fdClient);
-
+				listLocalFiles(pDir,fdClient);
 				pthread_mutex_unlock(&gMutex_lockSocket);
 			}else if(command ==DIE){
 				printf("[%ld]MiniServer read die command from [%ld]Client\n",
@@ -211,13 +193,47 @@ void startMiniServer(pid_t pidClient){
 
 				doneflag=1;
 				// TODO: CHANGE DONEFLAG WITH SOMETHING DIFF
-
 			}
 		}
 	}
 
 	pthread_mutex_destroy(&gMutex_lockSocket);
+	closedir(pDir);
+	pDir=NULL; // handle dangling pointers
+}
 
+// pidCLient : use for debugging
+void lsClient(int fdClient,pid_t pidClient){
+
+	int clientnum=0;
+	pid_t pidConnectedClient=-1;
+	int i=0;
+	Command_e command=LS_CLIENT;
+
+	sem_wait(gSemP_pipeSem); // lock semafor
+	pthread_mutex_lock(&gMutex_lockSocket); // lock writing socket
+
+	write(gPipe_cwpr[1],&command,sizeof(Command_e)); // write main server
+	write(gPipe_cwpr[1],&gPid_server,sizeof(pid_t)); // send mini server to mainserver
+	write(fdClient,&command,sizeof(Command_e)); // say client, which command result will send
+	
+	read(gPipe_crpw[0],&clientnum,sizeof(int)); // read from main server
+	#ifdef DEBUG
+		printf("[%ld]MiniServer read %d clients pid from MainServer\n",
+			(long)gPid_server,clientnum);
+	#endif
+	write(fdClient,&clientnum,sizeof(int)); // push client number to socket
+	
+	for(i=0; i!=clientnum;++i){ // read pid from pipe and write to socket
+		read(gPipe_crpw[0],&pidConnectedClient,sizeof(pid_t));
+		write(fdClient,&pidConnectedClient,sizeof(pid_t));
+	}
+	#ifdef DEBUG
+		printf("[%ld]MiniServer send %d clients pid to [%ld]Client\n",
+			(long)gPid_server,clientnum,(long)pidClient);
+	#endif
+	pthread_mutex_unlock(&gMutex_lockSocket); // unlock socket writing
+	sem_post(gSemP_pipeSem); // unlock pipe semafors
 }
 
 
@@ -293,7 +309,7 @@ int getnamed(char *name, sem_t **sem, int val) {
 		return 0;
 	if (errno != EEXIST)
 		return -1;
-	while (((*sem = sem_open(name, 0)) == SEM_FAILED) && (errno == EINTR)) ;
+	while (((*sem = sem_open(name, 0)) == SEM_FAILED) && (errno == EINTR));
 
 	if (*sem != SEM_FAILED)
 		return 0;
@@ -323,24 +339,19 @@ void killAllChilds(int signum){
 ** @param dirPath : directory path to read 
 ** @return : number of founded files
 */
-int listLocalFiles(const char *dirPath,int fd){
+int listLocalFiles(DIR* dir,int fd){
 
-	DIR *pDir=NULL;
 	struct dirent *pDirent=NULL;
 	int filesize=0;
 	int filenum=0;
 	char fileName[MAX_FILE_NAME];
 	Command_e command = LIST_SERVER;
 
-	pDir = opendir(dirPath);
-	if(pDir==NULL){
-		perror("Dir open error :");
-		return -1;
-	}
+	
 
 	write(fd,&command,sizeof(Command_e));//first send command num to not confuse
 
-	while((pDirent = readdir(pDir))!=NULL){ // read files in directory
+	while((pDirent = readdir(dir))!=NULL){ // read files in directory
 		if(strcmp(pDirent->d_name,".")!=0 && strcmp(pDirent->d_name,"..")!=0){
 			if((filesize = isRegFile(pDirent->d_name))!=-1){
 				memset(fileName,0,MAX_FILE_NAME);
@@ -354,8 +365,6 @@ int listLocalFiles(const char *dirPath,int fd){
 	sprintf(fileName,"/");
 	write(fd,fileName,sizeof(MAX_FILE_NAME));
 
-	closedir(pDir);
-	pDir=NULL; // handle dangling pointers
 	pDirent=NULL;
 	return filenum;
 }

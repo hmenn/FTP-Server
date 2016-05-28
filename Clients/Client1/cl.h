@@ -21,6 +21,7 @@
 #define MAX_LINE_LEN 80
 #define MAX_FILE_NAME 25
 #define INVALID_FILE_NAME "/"
+#define LOCAL_DIR "./"
 
 
 typedef enum COMMAND{
@@ -40,7 +41,10 @@ void *socketListener(void *args);
 
 int isRegFile(const char * fileName);
 
-int listLocalFiles(const char *dirPath);
+int listFilesInDir(DIR *dir);
 
+void lsClient();
+
+void listServer();
 
 #endif
