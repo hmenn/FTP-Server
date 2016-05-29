@@ -22,6 +22,7 @@ pid_t gPid_server=0; // global server pid
 int gI_socketFd=-1;
 sem_t *gSemP_pipeSem;
 sem_t *gSemP_fifoSem;
+sem_t *gSemP_serverSem;
 hmlist_t serverList;
 pthread_mutex_t gMutex_lockSocket;
 
@@ -43,7 +44,6 @@ int main(int argc,char *argv[]){
 	}
 
 	signal(SIGINT,sighandler);
-	signal(SIGPIPE,sigPipeHandler);
 
 	gPid_server = getpid();
 	gI_serverPortNum = atoi(argv[1]);
@@ -62,11 +62,6 @@ void sighandler(int signum){
 	/*close(gPipe_cwpr[0]); // close read pipe to kill listener thread
 	close(gPipe_cwpr[1]);*/
 }
-
-void sigPipeHandler(int signum){
-	printf("%s -handled\n",strsignal(signum));
-}
-
 
 void startServer(int portnum){
 
@@ -87,7 +82,9 @@ void startServer(int portnum){
 	fprintf(stderr,"[%ld] initialized socket.\n",(long)gPid_server);
 
 	// create a semafor to control writing sequential to pipe
+	sem_unlink(PIPE_CONTROL_SEM);
 	getnamed(PIPE_CONTROL_SEM,&gSemP_pipeSem,1); 
+
 	pipe(gPipe_cwpr);
 	pipe(gPipe_crpw);
 	// TODO : check pipe errors
@@ -165,6 +162,7 @@ void startMiniServer(pid_t pidClient){
 	Command_e command=DIE;
 	DIR *pDir=NULL;
 	char strSemNameFifo[MAX_FILE_NAME];
+	pthread_t th_fifoController; 
 
 	pDir = opendir(LOCAL_DIR);
 	if(pDir==NULL){
@@ -175,9 +173,10 @@ void startMiniServer(pid_t pidClient){
 	memset(strSemNameFifo,0,MAX_FILE_NAME);
 	sprintf(strSemNameFifo,"/%ld.smf",(long)gPid_server);
 
-
 	getnamed(strSemNameFifo,&gSemP_fifoSem,1); 
 	
+	pthread_create(&th_fifoController,NULL,fifoController,NULL);
+
 	pthread_mutex_init(&gMutex_lockSocket,NULL); // initialize mutex
 
 	write(fdClient,&gPid_server,sizeof(pid_t));	//send pid address to client
@@ -208,36 +207,169 @@ void startMiniServer(pid_t pidClient){
 		}
 	}
 
+	char fifoName[MAX_FILE_NAME];
+	memset(fifoName,0,MAX_FILE_NAME);
+	sprintf(fifoName,".%ld.ff",(long)gPid_server);
+	int fd = open(fifoName,O_RDWR);
+	pid_t killpid=0;
+	write(fd,&killpid,sizeof(pid_t));
+	close(fd);
+
+
 	pthread_mutex_destroy(&gMutex_lockSocket);
+
+	pthread_join(th_fifoController,NULL);
 	closedir(pDir);
 	sem_close(gSemP_fifoSem);
 	pDir=NULL; // handle dangling pointers
 }
 
 
-int isClientOnline(pid_t pidClient){
+void *fifoController(void *args){
+
+	pid_t sentPid;
+	char fileName[MAX_FILE_NAME];
+	long filesize=0;
+	char buff;
+	int i=0;
+	char fifoName[MAX_FILE_NAME];
+	char semFifoName[MAX_FILE_NAME];
+
+	Command_e command = SEND_FILE;
+	
+
+	memset(fifoName,0,MAX_FILE_NAME);
+	sprintf(fifoName,".%ld.ff",(long)gPid_server);
+
+	memset(semFifoName,0,MAX_FILE_NAME);
+	sprintf(semFifoName,".%ld.ffsm",(long)gPid_server);
+
+	getnamed(semFifoName,&gSemP_serverSem,1);
+
+	mkfifo(fifoName,FIFO_PERMS);
+	int fd = open(fifoName,O_RDWR);
+
+
+	while(read(fd,&sentPid,sizeof(pid_t))>0 && sentPid!=0){
+
+		memset(fileName,0,MAX_FILE_NAME);
+		read(fd,fileName,MAX_FILE_NAME);
+		read(fd,&filesize,sizeof(long));
+
+		//printf("Pid : %ld, Name:%s, Size:%ld\n",(long)sentPid,fileName,filesize);
+		pthread_mutex_lock(&gMutex_lockSocket);
+
+		int cc = write(fdClient,&command,sizeof(Command_e));
+		//printf("CC:%d\n",cc);
+		int cp =write(fdClient,&sentPid,sizeof(pid_t));
+		//printf("CP:%d\n",cp);
+		int cn = write(fdClient,fileName,MAX_FILE_NAME);
+		//printf("cn:%d\n",cn);
+		int cs =write(fdClient,&filesize,sizeof(long));
+		//printf("cs:%d\n",cs);
+
+		for(i=0;i!=filesize;++i){
+			read(fd,&buff,1);
+			int a =write(fdClient,&buff,1);
+			//printf("a:%d, buf:%c\n",a,buff);
+		}
+
+		pthread_mutex_unlock(&gMutex_lockSocket);
+		printf("[%ld]MiniServer sent file:%s to [%ld]Client",(long)gPid_server,
+							fileName,(long)sentPid);
+
+	}
+
+	close(fd);
+	unlink(fifoName);
+	sem_close(gSemP_serverSem);
+	sem_unlink(semFifoName);
+	return NULL;
+}
 
 
 
-	return -1;
+
+// return pid of server which client connected
+pid_t getClientServerPid(pid_t pidClient){
+
+	pid_t pid=0;
+	Command_e command = CHECK_CLIENT;
+	sem_wait(gSemP_pipeSem);
+
+	write(gPipe_cwpr[1],&command,sizeof(Command_e));
+	write(gPipe_cwpr[1],&gPid_server,sizeof(pid_t));
+	write(gPipe_cwpr[1],&pidClient,sizeof(pid_t));
+	read(gPipe_crpw[0],&pid,sizeof(pid_t));
+	sem_post(gSemP_pipeSem);
+
+	return pid;
 }
 
 void sendFile(){
 
 	char fileName[MAX_FILE_NAME];
-	long filesize;
-	pid_t pidArrival;
+	long filesize=0;
+	pid_t pidArrival=0;
 	int i=0;
 	char byte;
+	int sendServer=0;
+
 
 	read(fdClient,&pidArrival,sizeof(pid_t));
 	memset(fileName,0,MAX_FILE_NAME);
 	read(fdClient,fileName,MAX_FILE_NAME);
 	read(fdClient,&filesize,sizeof(long));
 
-	if(pidArrival==1){  // SEND SERVER
-		// create a sem and lock file in the server
+	printf("Send Pid:%ld, Name:%s, Size:%ld\n",(long)pidArrival,fileName,filesize);
 
+	if(pidArrival!=1){ // send client or server
+		pid_t pidArrivalServer = getClientServerPid(pidArrival);
+		if(pidArrivalServer<=0){
+			printf("[%ld]MiniServer will send file to server\n",(long)gPid_server);
+			sendServer=1;
+		}else{ // send client
+			printf("[%ld]MiniServer will send file to [%ld]MiniServer-[%ld]Client pair\n",
+						(long)gPid_server,(long)pidArrivalServer,(long)pidArrival);
+
+			char fifoName[MAX_FILE_NAME];
+			memset(fifoName,0,MAX_FILE_NAME);
+			sprintf(fifoName,".%ld.ff",(long)pidArrivalServer);
+
+			char semFifoName[MAX_FILE_NAME];
+			memset(semFifoName,0,MAX_FILE_NAME);
+			sprintf(semFifoName,".%ld.ffsm",(long)gPid_server);
+
+			int fd = open(fifoName,O_RDWR);
+			sem_t *semP;
+
+			getnamed(semFifoName,&semP,1); // fifonun semaforunuda kilitleki
+			// sadece tek kişi yazsın içine
+			sem_wait(semP);
+			write(fd,&pidArrival,sizeof(pid_t));
+			write(fd,fileName,MAX_FILE_NAME);
+			int a =write(fd,&filesize,sizeof(long));
+			//printf("SizeCheck:%d - %ld\n",a,filesize);
+			for(i=0;i!=filesize;++i){
+				read(fdClient,&byte,1);
+				int a = write(fd,&byte,1); // dosya fifoya yollandi
+				//printf("-%c %d\n",byte,a);
+			}
+
+			printf("[%ld]MiniServer sent file:%s(%ld)byte to [%ld]Client\n",
+					(long)gPid_server,fileName,filesize,(long)pidArrival);
+			//close(fd);
+			sem_post(semP);
+			sem_close(semP);
+
+		}
+
+	}
+
+	if(sendServer==1 || pidArrival==1){
+		
+		  // SEND SERVER
+		// create a sem and lock file in the server
 		sem_t *semServerFile;
 		char semName[MAX_FILE_NAME+4];
 		// prepare semaphore
@@ -248,6 +380,7 @@ void sendFile(){
 		printf("[%ld]MiniServer : Waiting... File Locked!\n",(long)gPid_server);
 		sem_wait(semServerFile);
 
+		
 		unlink(fileName); // delete ol files and create newfile
 		int fd = open(fileName,O_RDWR | O_CREAT, S_IRUSR | S_IWUSR| S_IRGRP | S_IROTH);
 
@@ -261,7 +394,6 @@ void sendFile(){
 		sem_post(semServerFile);
 		sem_close(semServerFile);
 		close(fd);
-	}else{
 
 	}
 }
@@ -321,6 +453,20 @@ void *listenPipe(void *args){
 				write(gPipe_crpw[1],&(node->data.pidClient),sizeof(pid_t));
 				node=node->next;
 			}
+		}else if(command == CHECK_CLIENT){
+			pid_t pidClient=0;
+			pid_t pidServer=0;
+			read(gPipe_cwpr[0],&pidClient,sizeof(pid_t));
+
+			node_t *curr = serverList.head;
+			while(curr!=NULL){
+				if(curr->data.pidClient==pidClient){
+					pidServer=curr->data.pidServer;
+					break;
+				}	
+				curr=curr->next;
+			}
+			write(gPipe_crpw[1],&pidServer,sizeof(pid_t));
 		}
 		pidRequest=-1;
 	}
@@ -428,7 +574,7 @@ int listLocalFiles(DIR* dir,int fd){
 
 	memset(fileName,0,MAX_FILE_NAME);
 	sprintf(fileName,"/");
-	write(fd,fileName,sizeof(MAX_FILE_NAME));
+	write(fd,fileName,MAX_FILE_NAME);
 
 	pDirent=NULL;
 	return filenum;

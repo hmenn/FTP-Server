@@ -16,6 +16,7 @@
 
 
 static sig_atomic_t doneflag=0;
+static sig_atomic_t sigPrint=0;
 int gI_socketFd;
 pid_t gPid_client;
 int gPipe_listenSocket[2]; // socketten gelenler buradan aktarilacak
@@ -37,26 +38,25 @@ int main(int argc,char *argv[]){
 	DIR *pDir=NULL;
 
 	if(gI_socketFd == -1){
-		perror("socket connect");
+		perror("Invalid port/socket");
 		return 1;
 	}
 
 	gPid_client = getpid();
-	// send pid and take server pid
+	// connect with pid and take server pid addres
 	write(gI_socketFd,&gPid_client,sizeof(pid_t));
 	read(gI_socketFd,&pidServer,sizeof(pid_t));
 
-	printf("[%ld] connected to [%ld]server\n",(long)gPid_client,(long)pidServer);
+	printf("##[%ld]Client connected to [%ld]server\n",(long)gPid_client,(long)pidServer);
 
 	pipe(gPipe_listenSocket);
 	pthread_t th_sockListener;
 	pthread_create(&th_sockListener,NULL,socketListener,NULL);
 
-
-
 	pDir = opendir(LOCAL_DIR);
 	if(pDir==NULL){
 		perror("Dir open error :");
+		close(gI_socketFd);
 		return -1;
 	}
 
@@ -68,13 +68,13 @@ int main(int argc,char *argv[]){
 			line[strlen(line)-1]='\0';
 			if(strcmp(line,"help")==0){
 				showHelpManual();
-			}else if(strcmp(line,"listLocal")==0){
+			}else if(strcmp(line,"listLocal")==0){ // list local files
 				listFilesInDir(pDir);
-			}else if(strcmp(line,"lsClient")==0){
+			}else if(strcmp(line,"lsClient")==0){ // list client pids
 				lsClient();
-			}else if(strcmp(line,"listServer")==0){
+			}else if(strcmp(line,"listServer")==0){ // list server files
 				listServer();
-			}else if(strstr(line,"sendFile")!=NULL){
+			}else if(strstr(line,"sendFile")!=NULL){ // send file
 				char *strName=NULL;
 				char *strPid=NULL;
 				pid_t pidClient;
@@ -84,38 +84,37 @@ int main(int argc,char *argv[]){
 				if(strName == NULL){
 					fprintf(stderr,"\nInvalid sendFile parameter. Check help manual\n\n");
 				}else{
-
 					if(strPid == NULL){
 						pidClient=1;
 					}else pidClient = atoi(strPid);
-
 					#ifdef DEBUG
 						printf("send file:%s to pid:%ld\n",strName,(long)pidClient);
 					#endif
-
 					sendFile(pDir,strName,pidClient);
 				}
-				
 				strName=NULL;
 				strPid=NULL;
-
+			}else if(strcmp(line,"exit")==0){
+				doneflag=1;
+				command=DIE;
+				write(gI_socketFd,&command,sizeof(Command_e));
 			}else{
-				printf("#Entered invalid command\n");
-				printf("#Please check 'help' page\n");
+				printf("\n##Entered invalid command\n");
+				printf("##Please check 'help' page\n\n");
 			}
 		}else{
 			command = DIE;
+			doneflag=1;
 			write(gI_socketFd,&command,sizeof(Command_e));
 		}
 	}
 
 	pthread_join(th_sockListener,NULL);
-	
-
-
 	closedir(pDir);
 	pDir=NULL; // handle dangling pointers
-	printf("\n\nCLIENT CLOSED SUCCUSSFULLY\n\n");
+	if(sigPrint)
+		printf("\nCTRL+C HANDLED\n");
+	printf("\nCLIENT CLOSED SUCCUSSFULLY\n\n");
 	return 0;
 }
 
@@ -189,44 +188,50 @@ void listServer(){
 	printf("There are %d files in server\n",i);
 }
 
-
+// sends request to server and takes online client pid's
 void lsClient(){
+
 	pid_t pidOnlineClient=-1;
 	Command_e command = LS_CLIENT;
 	int size=0;
 	int i=0;
 	// get online clients pid request
 	write(gI_socketFd,&command,sizeof(Command_e));
-	// thread socketi okuyup sonuclari gonderince alacak
+	// read results from thread/pipe connections 
+	printf("\n############################\nCommand : LIST CLIENT PID'S\n");
 	printf("Waiting for list of online clients\n");
 	
 	read(gPipe_listenSocket[0],&size,sizeof(int));
-	printf("There are %d online client\n",size);
+	printf("\nThere are %d online client\n",size);
 	
 	for(i=1;i<=size;++i){
 		read(gPipe_listenSocket[0],&pidOnlineClient,sizeof(pid_t));
 		printf("%d. %ld\n",i,(long)pidOnlineClient);
 	}
+
+	printf("\n###########################\n");
 }
 
 
 
 void sigHandler(int signum){
-	printf("%s handled\n",strsignal(signum));
+	//printf("%s handled\n",strsignal(signum));
 	doneflag=1;
+	sigPrint=1;
 	close(0);
 }
 
 
-// TODO :  CHANGE WITH NEW GOOD HELP PAGE
+// show manual page
 void showHelpManual(){
 	printf("\n#################################\n");
-	printf("Arguments...\n");
-	printf("1. help : show help manual\n");
-	printf("2. listLocal : to list the local files in the directory\nclient program started\n");
-	printf("3. listServer : to list the files in the current scope of\nthe server-client\n");
-	printf("4. lsClient pid : lists the clients currently connected to the\nserver with their respective clientids\n");
-	printf("5. sendFile <filename> <clientid>  : send the file <filename>");
+	printf("......HELP MANUAL......\n");
+	printf("\nCommands: \n");
+	printf("\n-> help : show help manual\n");
+	printf("\n-> listLocal :list the local files in the directory client program started\n");
+	printf("\n-> listServer : list the files in the current scope of the server-client\n");
+	printf("\n-> lsClient pid : lists the clients currently connected to the server with their respective clientids\n");
+	printf("\n-> sendFile filename clientid  : send the file <filename>");
 	printf("(if file exists) from local directory to the client with client");
 	printf("id clientid. If no client id is given the file is send to the\nservers local directory.\n");
 	printf("\n#################################\n");
@@ -269,6 +274,35 @@ void *socketListener(void *args){
 			}
 		}else if(command==DIE){
 			break;
+		}else if(command==SEND_FILE){
+
+			pid_t whoSent=0;
+			long filesize=0;
+			char fileName[MAX_FILE_NAME];
+			char buff;
+
+			
+			memset(fileName,0,MAX_FILE_NAME);
+			read(gI_socketFd,&whoSent,sizeof(pid_t));
+			read(gI_socketFd,fileName,MAX_FILE_NAME);
+			read(gI_socketFd,&filesize,sizeof(long));
+			printf("WhoSent:%ld, Name:%s, Size:%ld\n",(long)whoSent,fileName,filesize);
+
+			strcat(fileName,"-new");
+			unlink(fileName); 
+			int fd =open(fileName,O_RDWR | O_CREAT, S_IRUSR | S_IWUSR| S_IRGRP | S_IROTH);
+
+			// delete ol files and create newfile
+
+			for(i=0;i!=filesize;++i){
+				read(gI_socketFd,&buff,1);
+				write(fd,&buff,1);
+			}
+
+			printf("[%ld]MiniServer : File transfer to server completed\n",(long)gPid_client);
+
+			close(fd);
+
 		}
 	}
 
@@ -304,18 +338,6 @@ int connectServer(const char *ipnum,int portnum){
 	return gI_socketFd;
 }
 
-// if regular file return file size
-int isRegFile(const char * fileName){
-  struct stat statbuf;
-
-  if(stat(fileName,&statbuf) == -1){
-    return -1;
-  }else{
-    return S_ISREG(statbuf.st_mode) ? statbuf.st_size : -1;
-  }
-}
-
-
 /*
 ** Reads files in directory and prints standart output
 ** @param dirPath : directory path to read 
@@ -324,19 +346,19 @@ int isRegFile(const char * fileName){
 int listFilesInDir(DIR *dir){
 
 	struct dirent *pDirent=NULL;
-	int filesize=0;
+	struct stat st;
 	int filenum=0;
 
-	printf("####################\nReading local dir ...\n");
+	printf("#########################\nCommand : List Local Files\n");
+	printf("Reading files in local dir ...\n\n");
 	while((pDirent = readdir(dir))!=NULL){ // read files in directory
 		if(strcmp(pDirent->d_name,".")!=0 && strcmp(pDirent->d_name,"..")!=0){
-			if((filesize = isRegFile(pDirent->d_name))!=-1){
-				++filenum;
-				printf("%d. %s\t %d(byte)\n",filenum,pDirent->d_name,filesize);
-			}
+			stat(pDirent->d_name,&st);
+			++filenum;
+			printf("%d. %s\t %ld(byte)\n",filenum,pDirent->d_name,(long)st.st_size);
 		}
 	}
-	printf("\nFound %d files\n###################\n",filenum);
+	printf("\nFound %d files\n#########################\n",filenum);
 
 	pDirent=NULL; // handle dangling ptr
 	return filenum;

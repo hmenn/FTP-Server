@@ -17,7 +17,7 @@
 #include <errno.h>
 
 
-#define DEBUG 0
+//#define DEBUG 0
 #define MAX_LINE_LEN 80
 #define MAX_FILE_NAME 25
 #define INVALID_FILE_NAME "/"
@@ -25,13 +25,17 @@
 
 
 typedef enum COMMAND{
-	LIST_SERVER,LS_CLIENT,SEND_FILE,DIE
+	LIST_SERVER,LS_CLIENT,SEND_FILE,DIE,CHECK_CLIENT
 }Command_e;
 
 
 void sigHandler(int signum);
 
+// show manual page
 void showHelpManual();
+
+// list online client pids
+void lsClient();
 
 int connectServer(const char *ipnum,int portnum);
 
@@ -39,11 +43,9 @@ void sigAlarmHandler(int signum);
 
 void *socketListener(void *args);
 
-int isRegFile(const char * fileName);
-
 int listFilesInDir(DIR *dir);
 
-void lsClient();
+
 
 void listServer();
 

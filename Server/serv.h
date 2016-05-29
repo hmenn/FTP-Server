@@ -8,10 +8,12 @@
 #define MAX_FILE_NAME 25
 #define INVALID_FILE_NAME "/"
 #define LOCAL_DIR "./"
+#define FIFO_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+
 
 
 typedef enum COMMAND{
-	LIST_SERVER,LS_CLIENT,SEND_FILE,DIE
+	LIST_SERVER,LS_CLIENT,SEND_FILE,DIE,CHECK_CLIENT
 }Command_e;
 
 
@@ -21,7 +23,6 @@ int initializeSocket(int portnum,int comingnum);
 int getnamed(char *name, sem_t **sem, int val);
 void *listenPipe(void *args);
 void sighandler(int signum);
-void sigPipeHandler(int signum);
 void killAllChilds();
 
 
@@ -37,10 +38,12 @@ int isRegFile(const char * fileName);
 
 
 
-int isClientOnline(pid_t pidClient);
+pid_t getClientServerPid(pid_t pidClient);
 
 void sendFile();
 
+
+void *fifoController(void *args);
 
 
 #endif
