@@ -34,7 +34,16 @@ int gPipe_cwpr[2]; // 'C'hild 'W'rite 'P'arent 'R'ead  global pipe
 static sig_atomic_t doneflag=0;
 struct timeval startTime;
 struct timeval endTime;
-long diffTime;
+long diffTime=0;
+
+void sigChldHandler(int signum){
+	pid_t pidCh = wait(NULL);
+	deleteElemFromList(&serverList,pidCh);
+	gettimeofday(&endTime,NULL);
+	diffTime = getTimeDif(startTime,endTime);
+	printf("[%ld]MainServer handled [%ld]deadMiniServer in %ld ms\n",
+		(long)gPid_server,(long)pidCh,diffTime);
+}
 
 int main(int argc,char *argv[]){
 
@@ -44,14 +53,17 @@ int main(int argc,char *argv[]){
 	}
 
 	signal(SIGINT,sighandler);
+	signal(SIGCHLD,sigChldHandler);
 
 	gPid_server = getpid();
 	gI_serverPortNum = atoi(argv[1]);
-	gettimeofday(&startTime);
+	gettimeofday(&startTime,NULL);
 
 	startServer(gI_serverPortNum);
 
-	printf("[%ld] server closed\n",(long)gPid_server);
+	gettimeofday(&endTime,NULL);
+	diffTime=getTimeDif(startTime,endTime);
+	printf("[%ld] server closed in %ld ms\n",(long)gPid_server,diffTime);
 
 	return 0;
 }
@@ -86,7 +98,7 @@ void startServer(int portnum){
 		return;
 	}
 
-	fprintf(stderr,"[%ld] initialized socket.\n",(long)gPid_server);
+	fprintf(stderr,"[%ld]MainServer initialized socket\n",(long)gPid_server);
 
 	// create a semafor to control writing sequential to pipe
 	sem_unlink(PIPE_CONTROL_SEM);
@@ -96,12 +108,11 @@ void startServer(int portnum){
 	pipe(gPipe_crpw);
 	// TODO : check pipe errors
 
-
 	pthread_t th_pipeListener;
 	pthread_create(&th_pipeListener,NULL,listenPipe,NULL);
 
 	memset(&serverList,0,sizeof(hmlist_t)); //clear junks
-	gettimeofday(&endTime);
+	gettimeofday(&endTime,NULL);
 	diffTime = getTimeDif(startTime,endTime);
 	printf("[%ld]MainServer is builded in %ld ms\n",(long)gPid_server,diffTime);
 
@@ -118,7 +129,6 @@ void startServer(int portnum){
 		if(fdClient !=-1 && !doneflag){
 			// client send pid address and server creates new mini server to serv
 			read(fdClient,&pidClient,sizeof(pid_t));
-
 			if( (pidChild = fork())==-1){
 				perror("Fork");
 				doneflag=1;
@@ -131,11 +141,12 @@ void startServer(int portnum){
 				miniServer.pidClient=pidClient;
 				miniServer.fdSocket = fdClient;
 				addList(&serverList,&miniServer); // store child informations
-				printf("Client[%ld] connected to server[%ld].\n",
-	 									(long)pidClient,(long)pidChild);
+				gettimeofday(&endTime,NULL);
+				diffTime = getTimeDif(startTime,endTime);
+				printf("Client[%ld] connected to server[%ld] in %ld ms\n",
+	 									(long)pidClient,(long)pidChild,diffTime);
 			}
 		}else doneflag=1;
-
 	}
 
 	if(pidChild ==0){ // child here
@@ -150,13 +161,11 @@ void startServer(int portnum){
 		close(gI_socketFd); // close spesific socket fildes
 		// return main and close mini server
 	}else{ // main server here
-
 		killAllChilds(SIGINT); 
 		close(gPipe_cwpr[1]); //close pipe to kill thread
 
 		while(wait(NULL)!=-1){} // wait childs
 		// TODO : create thread to wait childs
-
 		deleteList(&serverList);
 		printf("[%ld]MainServer Waiting for threads\n",(long)gPid_server);
 		pthread_join(th_pipeListener,NULL);
@@ -181,7 +190,6 @@ void startMiniServer(pid_t pidClient){
 
 	memset(strSemNameFifo,0,MAX_FILE_NAME);
 	sprintf(strSemNameFifo,"/%ld.smf",(long)gPid_server);
-
 	getnamed(strSemNameFifo,&gSemP_fifoSem,1); 
 	
 	pthread_create(&th_fifoController,NULL,fifoController,NULL);
@@ -191,27 +199,29 @@ void startMiniServer(pid_t pidClient){
 	write(fdClient,&gPid_server,sizeof(pid_t));	//send pid address to client
 	while(!doneflag){
 		read(fdClient,&command,sizeof(Command_e));
-		#ifdef DEBUG
-			printf("[%ld]MiniServer read command %d from [%ld]Client\n",
-				(long)gPid_server,command,(long)pidClient);
-		#endif
+		gettimeofday(&endTime,NULL);
+		diffTime = getTimeDif(startTime,endTime);
 		if(!doneflag){
 			if(command==LS_CLIENT){
+				printf("[%ld]MiniServer read LS_CLIENT command from [%ld]Client at %ld ms\n",
+				(long)gPid_server,(long)pidClient,diffTime);
 				lsClient(fdClient,pidClient);
 			}else if(command==LIST_SERVER){
 				//lock mutex and write filenames to socket
+				printf("[%ld]MiniServer read LIST_SERVER command from [%ld]Client at %ld ms\n",
+				(long)gPid_server,(long)pidClient,diffTime);
 				pthread_mutex_lock(&gMutex_lockSocket); 
 				listLocalFiles(pDir,fdClient);
 				pthread_mutex_unlock(&gMutex_lockSocket);
 			}else if(command ==DIE){
-				printf("[%ld]MiniServer read die command from [%ld]Client\n",
-					(long)gPid_server,(long)pidClient);
+				printf("[%ld]MiniServer read DIE command from [%ld]Client at %ld ms\n",
+				(long)gPid_server,(long)pidClient,diffTime);
 				write(fdClient,&command,sizeof(Command_e));
 
 				doneflag=1;
 				// TODO: CHANGE DONEFLAG WITH SOMETHING DIFF
 			}else if(command == SEND_FILE){
-				sendFile();
+				sendFile(pidClient);
 			}
 		}
 	}
@@ -224,9 +234,7 @@ void startMiniServer(pid_t pidClient){
 	write(fd,&killpid,sizeof(pid_t));
 	close(fd);
 
-
 	pthread_mutex_destroy(&gMutex_lockSocket);
-
 	pthread_join(th_fifoController,NULL);
 	closedir(pDir);
 	sem_close(gSemP_fifoSem);
@@ -246,7 +254,6 @@ void *fifoController(void *args){
 
 	Command_e command = SEND_FILE;
 	
-
 	memset(fifoName,0,MAX_FILE_NAME);
 	sprintf(fifoName,".%ld.ff",(long)gPid_server);
 
@@ -257,7 +264,6 @@ void *fifoController(void *args){
 
 	mkfifo(fifoName,FIFO_PERMS);
 	int fd = open(fifoName,O_RDWR);
-
 
 	while(read(fd,&sentPid,sizeof(pid_t))>0 && sentPid!=0){
 
@@ -284,8 +290,10 @@ void *fifoController(void *args){
 		}
 
 		pthread_mutex_unlock(&gMutex_lockSocket);
-		printf("[%ld]MiniServer sent file:%s to [%ld]Client",(long)gPid_server,
-							fileName,(long)sentPid);
+		gettimeofday(&endTime,NULL);
+		diffTime=getTimeDif(startTime,endTime);
+		printf("[%ld]MiniServer sent file:%s to [%ld]Client in %ld ms",(long)gPid_server,
+							fileName,(long)sentPid,diffTime);
 
 	}
 
@@ -315,7 +323,7 @@ pid_t getClientServerPid(pid_t pidClient){
 	return pid;
 }
 
-void sendFile(){
+void sendFile(pid_t whosent){
 
 	char fileName[MAX_FILE_NAME];
 	long filesize=0;
@@ -330,16 +338,18 @@ void sendFile(){
 	read(fdClient,fileName,MAX_FILE_NAME);
 	read(fdClient,&filesize,sizeof(long));
 
-	printf("Send Pid:%ld, Name:%s, Size:%ld\n",(long)pidArrival,fileName,filesize);
-
+	gettimeofday(&endTime,NULL);
+	diffTime=getTimeDif(startTime,endTime);
 	if(pidArrival!=1){ // send client or server
 		pid_t pidArrivalServer = getClientServerPid(pidArrival);
 		if(pidArrivalServer<=0){
-			printf("[%ld]MiniServer will send file to server\n",(long)gPid_server);
+			printf("[%ld]MiniServer want to send file to server in %ld ms\n",
+				(long)gPid_server,diffTime);
 			sendServer=1;
 		}else{ // send client
-			printf("[%ld]MiniServer will send file to [%ld]MiniServer-[%ld]Client pair\n",
-						(long)gPid_server,(long)pidArrivalServer,(long)pidArrival);
+
+			printf("[%ld]MiniServer want to send file to [%ld]MiniServer-[%ld]Client pair in %ld ms\n",
+						(long)gPid_server,(long)pidArrivalServer,(long)pidArrival,diffTime);
 
 			char fifoName[MAX_FILE_NAME];
 			memset(fifoName,0,MAX_FILE_NAME);
@@ -355,7 +365,7 @@ void sendFile(){
 			getnamed(semFifoName,&semP,1); // fifonun semaforunuda kilitleki
 			// sadece tek kişi yazsın içine
 			sem_wait(semP);
-			write(fd,&pidArrival,sizeof(pid_t));
+			write(fd,&whosent,sizeof(pid_t));
 			write(fd,fileName,MAX_FILE_NAME);
 			int a =write(fd,&filesize,sizeof(long));
 			//printf("SizeCheck:%d - %ld\n",a,filesize);
@@ -365,8 +375,10 @@ void sendFile(){
 				//printf("-%c %d\n",byte,a);
 			}
 
-			printf("[%ld]MiniServer sent file:%s(%ld)byte to [%ld]Client\n",
-					(long)gPid_server,fileName,filesize,(long)pidArrival);
+			gettimeofday(&endTime,NULL);
+			diffTime=getTimeDif(startTime,endTime);
+			printf("[%ld]MiniServer sent file: %s (%ld)byte to [%ld]Client in %ld ms\n",
+					(long)gPid_server,fileName,filesize,(long)pidArrival,diffTime);
 			//close(fd);
 			sem_post(semP);
 			sem_close(semP);
@@ -424,20 +436,24 @@ void lsClient(int fdClient,pid_t pidClient){
 	write(fdClient,&command,sizeof(Command_e)); // say client, which command result will send
 	
 	read(gPipe_crpw[0],&clientnum,sizeof(int)); // read from main server
-	#ifdef DEBUG
-		printf("[%ld]MiniServer read %d clients pid from MainServer\n",
-			(long)gPid_server,clientnum);
-	#endif
+
+	gettimeofday(&endTime,NULL);
+	diffTime = getTimeDif(startTime,endTime);
+	printf("[%ld]MiniServer read %d online clients pid from MainServer in %ld ms\n",
+			(long)gPid_server,clientnum,diffTime);
+
 	write(fdClient,&clientnum,sizeof(int)); // push client number to socket
 	
 	for(i=0; i!=clientnum;++i){ // read pid from pipe and write to socket
 		read(gPipe_crpw[0],&pidConnectedClient,sizeof(pid_t));
 		write(fdClient,&pidConnectedClient,sizeof(pid_t));
 	}
-	#ifdef DEBUG
-		printf("[%ld]MiniServer send %d clients pid to [%ld]Client\n",
-			(long)gPid_server,clientnum,(long)pidClient);
-	#endif
+
+	gettimeofday(&endTime,NULL);
+	diffTime = getTimeDif(startTime,endTime);
+	printf("[%ld]MiniServer send %d online clients pid to [%ld]Client in %ld ms\n",
+			(long)gPid_server,clientnum,(long)pidClient,diffTime);
+
 	pthread_mutex_unlock(&gMutex_lockSocket); // unlock socket writing
 	sem_post(gSemP_pipeSem); // unlock pipe semafors
 }
@@ -452,8 +468,8 @@ void *listenPipe(void *args){
 	// take requests from pipe
 	while(!doneflag && read(gPipe_cwpr[0],&command,sizeof(Command_e))>0 && !doneflag){
 		read(gPipe_cwpr[0],&pidRequest,sizeof(pid_t));
-		printf("[%ld]MainServer read command from [%ld]MiniServer %d\n",
-						(long)gPid_server,(long)pidRequest,command);
+		printf("[%ld]MainServer read command %d from [%ld]MiniServer\n",
+						(long)gPid_server,command,(long)pidRequest);
 		if(command == LS_CLIENT){
 			// first send number of clients
 			write(gPipe_crpw[1],&(serverList.size),sizeof(int));
@@ -548,8 +564,10 @@ void killAllChilds(int signum){
 		//write(head->data.fdSocket,&command,sizeof(command));
 		kill(pidMiniServer,signum);
 		close(head->data.fdSocket);
-		printf("[%ld]MainServer send kill(%d) to [%ld]Child\n",
-						(long)gPid_server,signum,(long)pidMiniServer);
+		gettimeofday(&endTime,NULL);
+		diffTime = getTimeDif(startTime,endTime);
+		printf("[%ld]MainServer send kill(%d) to [%ld]Child in %ld ms\n",
+						(long)gPid_server,signum,(long)pidMiniServer,diffTime);
 		head = head->next;
 	 }
 }

@@ -56,7 +56,7 @@ long getTimeDif(struct timeval start, struct timeval end);
 
 pid_t getClientServerPid(pid_t pidClient);
 
-void sendFile();
+void sendFile(pid_t whosent);
 
 
 void *fifoController(void *args);

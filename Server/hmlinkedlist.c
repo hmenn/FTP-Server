@@ -48,33 +48,38 @@ void printList(hmlist_t * list){
 
 // linkedlistten belli bir elemani silecez
 // hata olmasi durumunda -1 return edecektir
-int deleteElementFromList(hmlist_t *list,pid_t pid){
+void deleteElemFromList(hmlist_t *list,pid_t pidServer){
 
 	if(list == NULL){
-		perror("deleteElementFromList : Null parameter");
-		return -1;
+		perror("deleteElemFromList null parameter");
+		exit(1);
 	}
 
-	node_t *ref =list->head;
-	if(ref == NULL){
-		perror("deleteElementFromList : Null list head");
-		return -1;
-	} 
-
-	if(ref->data.pidServer == pid){
-		list->head = ref->next;
-		free(ref);
-		ref=NULL;
-		return 0;
+	if(list->head ==NULL){
+		return ;
 	}
 
+	if(list->head->data.pidServer==pidServer){
+		node_t *temp = list->head;
+		list->head = list->head->next;
+		free(temp);
+		temp=NULL;
+	}else{
+		node_t *curr = list->head;
+		node_t *temp=NULL;
+		while(curr->next!=NULL){
+			if(curr->next->data.pidServer==pidServer){
+				temp = curr ->next;
+				curr->next =temp->next;
+				break;
+			}
+			curr = curr->next;
+		}
 
-
-
-
-	printf("#### THIS IS A STUB ####\n");
-	printf("PID[%ld] deleted.\n",(long)pid);
-
+		free(temp);
+		temp=NULL;
+	}
+	list->size -=1; 
 }
 
 // linked listi siler

@@ -297,7 +297,6 @@ void *socketListener(void *args){
 			read(gI_socketFd,&whoSent,sizeof(pid_t));
 			read(gI_socketFd,fileName,MAX_FILE_NAME);
 			read(gI_socketFd,&filesize,sizeof(long));
-			printf("WhoSent:%ld, Name:%s, Size:%ld\n",(long)whoSent,fileName,filesize);
 
 			strcat(fileName,"-new");
 			unlink(fileName); 
@@ -310,8 +309,8 @@ void *socketListener(void *args){
 				write(fd,&buff,1);
 			}
 
-			printf("[%ld]MiniServer : File transfer to server completed\n",(long)gPid_client);
-
+			printf("\n[%ld]Client : read a file from [%ld]Client to server completed.\n",
+						(long)gPid_client,(long)whoSent);
 			close(fd);
 		}
 	}
@@ -357,7 +356,7 @@ int listFilesInDir(DIR *dir){
 	struct dirent *pDirent=NULL;
 	struct stat st;
 	int filenum=0;
-
+	rewinddir(dir);
 	printf("#########################\nCommand : List Local Files\n");
 	printf("Reading files in local dir ...\n\n");
 	while((pDirent = readdir(dir))!=NULL){ // read files in directory
