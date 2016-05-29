@@ -398,20 +398,28 @@ void sendFile(pid_t whosent){
 		sprintf(semName,".%s.sm",fileName);
 		getnamed(semName,&semServerFile,1);
 
-		printf("[%ld]MiniServer : Waiting... File Locked!\n",(long)gPid_server);
 		sem_wait(semServerFile);
-
+		gettimeofday(&endTime,NULL);
+		diffTime=getTimeDif(startTime,endTime);
+		printf("[%ld]MiniServer locked server-file : %s to update in %ld ms\n",
+				(long)gPid_server,fileName,diffTime);
 		
 		unlink(fileName); // delete ol files and create newfile
 		int fd = open(fileName,O_RDWR | O_CREAT, S_IRUSR | S_IWUSR| S_IRGRP | S_IROTH);
 
-		printf("[%ld]MiniServer : File transfer to server started\n",(long)gPid_server);
+		gettimeofday(&endTime,NULL);
+		diffTime=getTimeDif(startTime,endTime);
+		printf("[%ld]MiniServer file: %s transfer started in %ld ms\n",
+							(long)gPid_server,fileName,diffTime);
 		for(i=0;i!=filesize;++i){
 			read(fdClient,&byte,1);
 			write(fd,&byte,1);
 		}
 
-		printf("[%ld]MiniServer : File transfer to server completed\n",(long)gPid_server);
+		gettimeofday(&endTime,NULL);
+		diffTime=getTimeDif(startTime,endTime);
+		printf("[%ld]MiniServer unlocked(transfer completed) server-file : %s in %ld ms\n",
+						(long)gPid_server,fileName,diffTime);
 		sem_post(semServerFile);
 		sem_close(semServerFile);
 		close(fd);
@@ -585,6 +593,7 @@ int listLocalFiles(DIR* dir,int fd){
 	char fileName[MAX_FILE_NAME];
 	Command_e command = LIST_SERVER;
 
+	rewinddir(dir);
 	write(fd,&command,sizeof(Command_e));//first send command num to not confuse
 
 	while((pDirent = readdir(dir))!=NULL){ // read files in directory
