@@ -47,4 +47,7 @@ void lsClient();
 
 void listServer();
 
+long isFileInDir(DIR *dir,const char *fileName);
+int sendFile(DIR* dir, const char *fileName,pid_t pid);
+
 #endif

@@ -15,11 +15,13 @@
 #include <semaphore.h>
 #include "serv.h"
 #include "hmlinkedlist.h"
+#include "fileList.h"
 
 int gI_serverPortNum=-1; // port number -- global integer
 pid_t gPid_server=0; // global server pid
 int gI_socketFd=-1;
 sem_t *gSemP_pipeSem;
+sem_t *gSemP_fifoSem;
 hmlist_t serverList;
 pthread_mutex_t gMutex_lockSocket;
 
@@ -33,6 +35,8 @@ static sig_atomic_t doneflag=0;
 
 int main(int argc,char *argv[]){
 
+
+	//testFileList();
 	if(argc != 2){
 		fprintf(stderr, "USAGE : %s portnumber\n",argv[0]);
 		return 1;
@@ -54,7 +58,7 @@ void sighandler(int signum){
 	printf("%s handled\n",strsignal(signum));
 	doneflag=1;
 	close(gI_socketFd); // interrupt accept socket
-	//close(fdClient);
+	close(fdClient);
 	/*close(gPipe_cwpr[0]); // close read pipe to kill listener thread
 	close(gPipe_cwpr[1]);*/
 }
@@ -160,7 +164,7 @@ void startMiniServer(pid_t pidClient){
 
 	Command_e command=DIE;
 	DIR *pDir=NULL;
-
+	char strSemNameFifo[MAX_FILE_NAME];
 
 	pDir = opendir(LOCAL_DIR);
 	if(pDir==NULL){
@@ -168,6 +172,11 @@ void startMiniServer(pid_t pidClient){
 		return;
 	}
 
+	memset(strSemNameFifo,0,MAX_FILE_NAME);
+	sprintf(strSemNameFifo,"/%ld.smf",(long)gPid_server);
+
+
+	getnamed(strSemNameFifo,&gSemP_fifoSem,1); 
 	
 	pthread_mutex_init(&gMutex_lockSocket,NULL); // initialize mutex
 
@@ -193,14 +202,70 @@ void startMiniServer(pid_t pidClient){
 
 				doneflag=1;
 				// TODO: CHANGE DONEFLAG WITH SOMETHING DIFF
+			}else if(command == SEND_FILE){
+				sendFile();
 			}
 		}
 	}
 
 	pthread_mutex_destroy(&gMutex_lockSocket);
 	closedir(pDir);
+	sem_close(gSemP_fifoSem);
 	pDir=NULL; // handle dangling pointers
 }
+
+
+int isClientOnline(pid_t pidClient){
+
+
+
+	return -1;
+}
+
+void sendFile(){
+
+	char fileName[MAX_FILE_NAME];
+	long filesize;
+	pid_t pidArrival;
+	int i=0;
+	char byte;
+
+	read(fdClient,&pidArrival,sizeof(pid_t));
+	memset(fileName,0,MAX_FILE_NAME);
+	read(fdClient,fileName,MAX_FILE_NAME);
+	read(fdClient,&filesize,sizeof(long));
+
+	if(pidArrival==1){  // SEND SERVER
+		// create a sem and lock file in the server
+
+		sem_t *semServerFile;
+		char semName[MAX_FILE_NAME+4];
+		// prepare semaphore
+		memset(semName,0,MAX_FILE_NAME+4);
+		sprintf(semName,".%s.sm",fileName);
+		getnamed(semName,&semServerFile,1);
+
+		printf("[%ld]MiniServer : Waiting... File Locked!\n",(long)gPid_server);
+		sem_wait(semServerFile);
+
+		unlink(fileName); // delete ol files and create newfile
+		int fd = open(fileName,O_RDWR | O_CREAT, S_IRUSR | S_IWUSR| S_IRGRP | S_IROTH);
+
+		printf("[%ld]MiniServer : File transfer to server started\n",(long)gPid_server);
+		for(i=0;i!=filesize;++i){
+			read(fdClient,&byte,1);
+			write(fd,&byte,1);
+		}
+
+		printf("[%ld]MiniServer : File transfer to server completed\n",(long)gPid_server);
+		sem_post(semServerFile);
+		sem_close(semServerFile);
+		close(fd);
+	}else{
+
+	}
+}
+
 
 // pidCLient : use for debugging
 void lsClient(int fdClient,pid_t pidClient){

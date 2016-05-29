@@ -74,7 +74,30 @@ int main(int argc,char *argv[]){
 				lsClient();
 			}else if(strcmp(line,"listServer")==0){
 				listServer();
-			}else if(strcmp(line,"sendFile")==0){
+			}else if(strstr(line,"sendFile")!=NULL){
+				char *strName=NULL;
+				char *strPid=NULL;
+				pid_t pidClient;
+				strtok(line," ");
+				strName = strtok(NULL," ");
+				strPid = strtok(NULL," ");
+				if(strName == NULL){
+					fprintf(stderr,"\nInvalid sendFile parameter. Check help manual\n\n");
+				}else{
+
+					if(strPid == NULL){
+						pidClient=1;
+					}else pidClient = atoi(strPid);
+
+					#ifdef DEBUG
+						printf("send file:%s to pid:%ld\n",strName,(long)pidClient);
+					#endif
+
+					sendFile(pDir,strName,pidClient);
+				}
+				
+				strName=NULL;
+				strPid=NULL;
 
 			}else{
 				printf("#Entered invalid command\n");
@@ -94,6 +117,55 @@ int main(int argc,char *argv[]){
 	pDir=NULL; // handle dangling pointers
 	printf("\n\nCLIENT CLOSED SUCCUSSFULLY\n\n");
 	return 0;
+}
+
+
+
+int sendFile(DIR* dir, const char *fileName,pid_t pid){
+
+	Command_e command=SEND_FILE;
+	long filesize=0;
+	if((filesize=isFileInDir(dir,fileName))==-1){
+		fprintf(stderr, "File:%s not found in local dir\n",fileName);
+		return -1;
+	}
+
+	write(gI_socketFd,&command,sizeof(Command_e));
+	write(gI_socketFd,&pid,sizeof(pid_t));
+	write(gI_socketFd,fileName,MAX_FILE_NAME);
+	write(gI_socketFd,&filesize,sizeof(long));
+
+	int fd = open(fileName,0600);
+
+	char ch;
+	while(read(fd,&ch,1)>0){
+		write(gI_socketFd,&ch,1);
+	}
+	
+	close(fd);
+
+	printf("FILE SENT\n");
+}
+
+
+long isFileInDir(DIR *dir,const char *fileName){
+	struct dirent *pDirent;
+	int found=0;
+	long filesize=-1;
+	struct stat st;
+
+	rewinddir(dir);
+	while((pDirent = readdir(dir))!=NULL){
+		if(strcmp(fileName,pDirent->d_name)==0){
+			stat(fileName,&st);
+			filesize=st.st_size;
+			found=1;
+			break;
+		}
+	}
+
+	pDirent=NULL;
+	return found==1 ? filesize : -1;
 }
 
 

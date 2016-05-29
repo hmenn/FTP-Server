@@ -9,6 +9,7 @@
 #define INVALID_FILE_NAME "/"
 #define LOCAL_DIR "./"
 
+
 typedef enum COMMAND{
 	LIST_SERVER,LS_CLIENT,SEND_FILE,DIE
 }Command_e;
@@ -33,6 +34,12 @@ void lsClient(int fdClient,pid_t pidClient);
 // fd can be socket,pipe,or stdout
 int listLocalFiles(DIR *dir,int fd);
 int isRegFile(const char * fileName);
+
+
+
+int isClientOnline(pid_t pidClient);
+
+void sendFile();
 
 
 

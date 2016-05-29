@@ -1,7 +1,8 @@
 all:
 	gcc hmlinkedlist.c -c
+	gcc fileList.c -c
 	gcc serv.c -c -DDEBUG
-	gcc hmlinkedlist.o serv.o -o serv -pthread
+	gcc hmlinkedlist.o fileList.o serv.o -o serv -pthread
 	rm -rf *.o
 
 v1:
