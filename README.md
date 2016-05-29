@@ -1,9 +1,9 @@
 # FTP-Server
 
-HASAN MEN - 131044009
-Sistem Programlama Final Projesi
-29.5.2016
-MultiClient-Server Socket programming
+- HASAN MEN - 131044009
+- Sistem Programlama Final Projesi - MultiClient-Server Socket programming
+- 29.5.2016
+- Github: https://github.com/hmenn/FTP-Server
 
 
 ##_Main-Server Nasil Calisir_##
@@ -46,5 +46,5 @@ MultiClient-Server Socket programming
 
 ###_Sinyaller_###
 1. Clienlere verilen sinyaller handle edildi.
-2. Servere kill gelince clienti oldurmuyor suan ama kendisi oluyor. Client ayrica oldurulmeli.
+2. SERVER TARAFINDAN GONDERILEN SINYALLERDE SORUN VAR
 3. Tum bunlara ek olarak herhangi bir leak yok.

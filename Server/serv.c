@@ -76,10 +76,10 @@ long getTimeDif(struct timeval start, struct timeval end)
 void sighandler(int signum){
 	printf("%s handled\n",strsignal(signum));
 	doneflag=1;
+	Command_e command=DIE;
+	//write(fdClient,&command,sizeof(Command_e));
 	close(gI_socketFd); // interrupt accept socket
 	close(fdClient);
-	/*close(gPipe_cwpr[0]); // close read pipe to kill listener thread
-	close(gPipe_cwpr[1]);*/
 }
 
 void startServer(int portnum){
@@ -217,7 +217,6 @@ void startMiniServer(pid_t pidClient){
 				printf("[%ld]MiniServer read DIE command from [%ld]Client at %ld ms\n",
 				(long)gPid_server,(long)pidClient,diffTime);
 				write(fdClient,&command,sizeof(Command_e));
-
 				doneflag=1;
 				// TODO: CHANGE DONEFLAG WITH SOMETHING DIFF
 			}else if(command == SEND_FILE){
@@ -265,7 +264,7 @@ void *fifoController(void *args){
 	mkfifo(fifoName,FIFO_PERMS);
 	int fd = open(fifoName,O_RDWR);
 
-	while(read(fd,&sentPid,sizeof(pid_t))>0 && sentPid!=0){
+	while(!doneflag && read(fd,&sentPid,sizeof(pid_t))>0 && sentPid!=0){
 
 		memset(fileName,0,MAX_FILE_NAME);
 		read(fd,fileName,MAX_FILE_NAME);
@@ -294,7 +293,6 @@ void *fifoController(void *args){
 		diffTime=getTimeDif(startTime,endTime);
 		printf("[%ld]MiniServer sent file:%s to [%ld]Client in %ld ms",(long)gPid_server,
 							fileName,(long)sentPid,diffTime);
-
 	}
 
 	close(fd);
@@ -331,7 +329,6 @@ void sendFile(pid_t whosent){
 	int i=0;
 	char byte;
 	int sendServer=0;
-
 
 	read(fdClient,&pidArrival,sizeof(pid_t));
 	memset(fileName,0,MAX_FILE_NAME);

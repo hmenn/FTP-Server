@@ -60,11 +60,10 @@ int main(int argc,char *argv[]){
 		return -1;
 	}
 
-	
 	Command_e command; // command value
 	while(!doneflag){
 		memset(line,0,MAX_LINE_LEN);
-		printf("Enter your command : ");
+		printf("Enter your command : \n");
 		if(fgets(line,MAX_LINE_LEN,stdin)!=NULL && !doneflag){
 			line[strlen(line)-1]='\0';
 			if(strcmp(line,"help")==0){
@@ -87,6 +86,7 @@ int main(int argc,char *argv[]){
 			doneflag=1;
 		}
 	}
+
 
 	if(doneflag){ // send die command to server and thread
 		command = DIE;
@@ -126,6 +126,7 @@ void sendFileWrapper(DIR* dir,char *line){
 	}
 	strName=NULL;
 	strPid=NULL;
+	printf("[%ld]Client sent file\n",(long)gPid_client);
 }
 
 // if file in directory, client will send directory to pid address
@@ -150,9 +151,7 @@ int sendFile(DIR* dir, const char *fileName,pid_t pid){
 	while(read(fd,&ch,1)>0){
 		write(gI_socketFd,&ch,1); //send file
 	}
-	
 	close(fd);
-	printf("[%ld]Client sent file\n",(long)gPid_client);
 }
 
 // Checks file already in dir
@@ -285,6 +284,9 @@ void *socketListener(void *args){
 						break;
 			}
 		}else if(command==DIE){
+			doneflag=1;
+			sigPrint=1;
+			close(0);
 			break;
 		}else if(command==SEND_FILE){
 
