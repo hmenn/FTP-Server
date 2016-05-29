@@ -60,6 +60,7 @@ int main(int argc,char *argv[]){
 		return -1;
 	}
 
+	
 	Command_e command; // command value
 	while(!doneflag){
 		memset(line,0,MAX_LINE_LEN);
@@ -73,44 +74,29 @@ int main(int argc,char *argv[]){
 			}else if(strcmp(line,"lsClient")==0){ // list client pids
 				lsClient();
 			}else if(strcmp(line,"listServer")==0){ // list server files
-				listServer();
+				listServer(pidServer);
 			}else if(strstr(line,"sendFile")!=NULL){ // send file
-				char *strName=NULL;
-				char *strPid=NULL;
-				pid_t pidClient;
-				strtok(line," ");
-				strName = strtok(NULL," ");
-				strPid = strtok(NULL," ");
-				if(strName == NULL){
-					fprintf(stderr,"\nInvalid sendFile parameter. Check help manual\n\n");
-				}else{
-					if(strPid == NULL){
-						pidClient=1;
-					}else pidClient = atoi(strPid);
-					#ifdef DEBUG
-						printf("send file:%s to pid:%ld\n",strName,(long)pidClient);
-					#endif
-					sendFile(pDir,strName,pidClient);
-				}
-				strName=NULL;
-				strPid=NULL;
+				sendFileWrapper(pDir,line);
 			}else if(strcmp(line,"exit")==0){
 				doneflag=1;
-				command=DIE;
-				write(gI_socketFd,&command,sizeof(Command_e));
 			}else{
 				printf("\n##Entered invalid command\n");
 				printf("##Please check 'help' page\n\n");
 			}
 		}else{
-			command = DIE;
 			doneflag=1;
-			write(gI_socketFd,&command,sizeof(Command_e));
 		}
 	}
 
+	if(doneflag){ // send die command to server and thread
+		command = DIE;
+		write(gI_socketFd,&command,sizeof(Command_e));
+	}
+
+	// when server die, will send thread die command end thread die
 	pthread_join(th_sockListener,NULL);
 	closedir(pDir);
+	close(gI_socketFd);
 	pDir=NULL; // handle dangling pointers
 	if(sigPrint)
 		printf("\nCTRL+C HANDLED\n");
@@ -118,8 +104,32 @@ int main(int argc,char *argv[]){
 	return 0;
 }
 
+// it's a wrapper function to control send file operation and reduce main 
+// pollution
+void sendFileWrapper(DIR* dir,char *line){
+	char *strName=NULL;
+	char *strPid=NULL;
+	pid_t pidClient;
+	strtok(line," ");
+	strName = strtok(NULL," ");
+	strPid = strtok(NULL," ");
+	if(strName == NULL){
+		fprintf(stderr,"\nInvalid sendFile parameter. Check help manual\n\n");
+	}else{
+		if(strPid == NULL){
+			pidClient=0; // send server
+		}else pidClient = atoi(strPid);
+		#ifdef DEBUG
+			printf("send file:%s to pid:%ld\n",strName,(long)pidClient);
+		#endif
+		sendFile(dir,strName,pidClient);
+	}
+	strName=NULL;
+	strPid=NULL;
+}
 
-
+// if file in directory, client will send directory to pid address
+// if pid 0, file will send server
 int sendFile(DIR* dir, const char *fileName,pid_t pid){
 
 	Command_e command=SEND_FILE;
@@ -134,19 +144,21 @@ int sendFile(DIR* dir, const char *fileName,pid_t pid){
 	write(gI_socketFd,fileName,MAX_FILE_NAME);
 	write(gI_socketFd,&filesize,sizeof(long));
 
-	int fd = open(fileName,0600);
+	int fd = open(fileName,0600); // read file byte-byte
 
 	char ch;
 	while(read(fd,&ch,1)>0){
-		write(gI_socketFd,&ch,1);
+		write(gI_socketFd,&ch,1); //send file
 	}
 	
 	close(fd);
-
-	printf("FILE SENT\n");
+	printf("[%ld]Client sent file\n",(long)gPid_client);
 }
 
-
+// Checks file already in dir
+// @return : if file there , return filesize otherise return -1
+// @param  dir pointer
+// @param  filename : filename to check 
 long isFileInDir(DIR *dir,const char *fileName){
 	struct dirent *pDirent;
 	int found=0;
@@ -162,19 +174,21 @@ long isFileInDir(DIR *dir,const char *fileName){
 			break;
 		}
 	}
-
 	pDirent=NULL;
 	return found==1 ? filesize : -1;
 }
 
 
-void listServer(){
+// sends request to mini server and takes list of files in server
+// @param : server pid to print details of step
+void listServer(pid_t pidServer){
 	char fileName[MAX_FILE_NAME];
 	Command_e command = LIST_SERVER;
 	int i=0;
 
-	write(gI_socketFd,&command,sizeof(Command_e));
-	printf("[%ld]Send request to listServer\n",(long)gPid_client);
+	printf("\n############################\nCommand: LIST FILES IN SERVER\n");
+	write(gI_socketFd,&command,sizeof(Command_e)); // send request
+	printf("##[%ld]Send request to [%ld]server\n\n",(long)gPid_client,(long)pidServer);
 
 	memset(fileName,0,MAX_FILE_NAME);
 	
@@ -183,14 +197,13 @@ void listServer(){
 			break;
 		++i;
 		printf("%d. %s\n",i,fileName);
-		
 	}
-	printf("There are %d files in server\n",i);
+	printf("\nThere are %d files in server\n",i);
+	printf("\n###########################\n");
 }
 
 // sends request to server and takes online client pid's
 void lsClient(){
-
 	pid_t pidOnlineClient=-1;
 	Command_e command = LS_CLIENT;
 	int size=0;
@@ -208,14 +221,11 @@ void lsClient(){
 		read(gPipe_listenSocket[0],&pidOnlineClient,sizeof(pid_t));
 		printf("%d. %ld\n",i,(long)pidOnlineClient);
 	}
-
 	printf("\n###########################\n");
 }
 
-
-
+// signal handler
 void sigHandler(int signum){
-	//printf("%s handled\n",strsignal(signum));
 	doneflag=1;
 	sigPrint=1;
 	close(0);
@@ -227,6 +237,7 @@ void showHelpManual(){
 	printf("\n#################################\n");
 	printf("......HELP MANUAL......\n");
 	printf("\nCommands: \n");
+	printf("\n-> exit : close program normally\n");
 	printf("\n-> help : show help manual\n");
 	printf("\n-> listLocal :list the local files in the directory client program started\n");
 	printf("\n-> listServer : list the files in the current scope of the server-client\n");
@@ -238,16 +249,17 @@ void showHelpManual(){
 	printf("\n");
 }
 
-
+// sig alarm handler
 void sigAlarmHandler(int signum){
 	doneflag=1;
 	close(gI_socketFd);
 }
 
 
-
+// this function will use by liestener thread
+// thread will listen socked and accept request or file transfers and direct
+// coming data to real owner
 void *socketListener(void *args){
-
 	Command_e command;
 	int size=0;
 	int i=0;
@@ -281,7 +293,6 @@ void *socketListener(void *args){
 			char fileName[MAX_FILE_NAME];
 			char buff;
 
-			
 			memset(fileName,0,MAX_FILE_NAME);
 			read(gI_socketFd,&whoSent,sizeof(pid_t));
 			read(gI_socketFd,fileName,MAX_FILE_NAME);
@@ -302,23 +313,22 @@ void *socketListener(void *args){
 			printf("[%ld]MiniServer : File transfer to server completed\n",(long)gPid_client);
 
 			close(fd);
-
 		}
 	}
-
 	return NULL;
 }
 
 
-
+// Send request to main server and then connects mini server
+// if server dont answer in 2sec, will return error
+// @param ipnum : ip number of server
+// @param portnum : number of main server 
 int connectServer(const char *ipnum,int portnum){
-
 	struct sockaddr_in serverAddr;
 	socklen_t serverArrLen;
 	signal(SIGALRM,sigAlarmHandler);
 	
 	if((gI_socketFd=socket(AF_INET,SOCK_STREAM,0))<0){
-		perror("->ConnecServer : socket error");
 		return -1;
 	}
 
@@ -330,7 +340,6 @@ int connectServer(const char *ipnum,int portnum){
 
 	alarm(2); // wait 2second to connect
 	if(connect(gI_socketFd,(struct sockaddr*)&serverAddr,serverArrLen)<0){
-		perror("->ConnectServer : connect error");
 		return -1;
 	}
 	alarm(0);

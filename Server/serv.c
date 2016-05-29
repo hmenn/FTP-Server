@@ -13,9 +13,9 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <semaphore.h>
+#include <time.h>
 #include "serv.h"
 #include "hmlinkedlist.h"
-#include "fileList.h"
 
 int gI_serverPortNum=-1; // port number -- global integer
 pid_t gPid_server=0; // global server pid
@@ -31,13 +31,13 @@ int fdClient=-1;// client socket fd
 int gPipe_crpw[2]; // 'C'hild 'R'ead 'P'arent 'W'rite global pipe
 int gPipe_cwpr[2]; // 'C'hild 'W'rite 'P'arent 'R'ead  global pipe
 
-
 static sig_atomic_t doneflag=0;
+struct timeval startTime;
+struct timeval endTime;
+long diffTime;
 
 int main(int argc,char *argv[]){
 
-
-	//testFileList();
 	if(argc != 2){
 		fprintf(stderr, "USAGE : %s portnumber\n",argv[0]);
 		return 1;
@@ -47,11 +47,18 @@ int main(int argc,char *argv[]){
 
 	gPid_server = getpid();
 	gI_serverPortNum = atoi(argv[1]);
+	gettimeofday(&startTime);
+
 	startServer(gI_serverPortNum);
 
 	printf("[%ld] server closed\n",(long)gPid_server);
 
 	return 0;
+}
+
+long getTimeDif(struct timeval start, struct timeval end)
+{
+    return (end.tv_sec - start.tv_sec) * 1000.0f + (end.tv_usec - start.tv_usec) / 1000.0f;
 }
 
 void sighandler(int signum){
@@ -74,7 +81,7 @@ void startServer(int portnum){
 	//clear junk values
 	memset(&clientAddr,0,clientAddrLen);
 
-	if((gI_socketFd = initializeSocket(portnum,LISTEN_NUMBER))==-1){
+	if((gI_socketFd = initializeSocket(portnum))==-1){
 		perror("Initialize socket");
 		return;
 	}
@@ -94,7 +101,9 @@ void startServer(int portnum){
 	pthread_create(&th_pipeListener,NULL,listenPipe,NULL);
 
 	memset(&serverList,0,sizeof(hmlist_t)); //clear junks
-	printf("[%ld] server started.\n",(long)gPid_server);
+	gettimeofday(&endTime);
+	diffTime = getTimeDif(startTime,endTime);
+	printf("[%ld]MainServer is builded in %ld ms\n",(long)gPid_server,diffTime);
 
 	hmServData_t miniServer;
 	
@@ -475,7 +484,7 @@ void *listenPipe(void *args){
 
 // listennum : listen to the incoming connections
 // return socket file descriptor
-int initializeSocket(int portnum,int comingnum){
+int initializeSocket(int portnum){
 
 	struct sockaddr_in serverAddr;
 	socklen_t serverlen;
@@ -505,7 +514,7 @@ int initializeSocket(int portnum,int comingnum){
 	}
 
 	// listen socket comming connetions
-	if(listen(fdSocket,comingnum)){
+	if(listen(fdSocket,LISTEN_NUMBER)){
 		perror("Listen socket : ");
 		return -1;
 	}
@@ -513,6 +522,7 @@ int initializeSocket(int portnum,int comingnum){
 	return fdSocket;
 }
 
+// creates named semaphore
 int getnamed(char *name, sem_t **sem, int val) {
 	while (((*sem = sem_open(name, FLAGS, 0600, val)) == SEM_FAILED) &&
 									(errno == EINTR)) ;
@@ -553,22 +563,17 @@ void killAllChilds(int signum){
 int listLocalFiles(DIR* dir,int fd){
 
 	struct dirent *pDirent=NULL;
-	int filesize=0;
 	int filenum=0;
 	char fileName[MAX_FILE_NAME];
 	Command_e command = LIST_SERVER;
-
-	
 
 	write(fd,&command,sizeof(Command_e));//first send command num to not confuse
 
 	while((pDirent = readdir(dir))!=NULL){ // read files in directory
 		if(strcmp(pDirent->d_name,".")!=0 && strcmp(pDirent->d_name,"..")!=0){
-			if((filesize = isRegFile(pDirent->d_name))!=-1){
-				memset(fileName,0,MAX_FILE_NAME);
-				strcpy(fileName,pDirent->d_name);
-				write(fd,fileName,MAX_FILE_NAME);
-			}
+			memset(fileName,0,MAX_FILE_NAME);
+			strcpy(fileName,pDirent->d_name);
+			write(fd,fileName,MAX_FILE_NAME);
 		}
 	}
 
@@ -578,16 +583,4 @@ int listLocalFiles(DIR* dir,int fd){
 
 	pDirent=NULL;
 	return filenum;
-}
-
-
-// if regular file return file size
-int isRegFile(const char * fileName){
-  struct stat statbuf;
-
-  if(stat(fileName,&statbuf) == -1){
-    return -1;
-  }else{
-    return S_ISREG(statbuf.st_mode) ? statbuf.st_size : -1;
-  }
 }
